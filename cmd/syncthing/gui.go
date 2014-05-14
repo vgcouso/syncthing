@@ -51,6 +51,7 @@ func startGUI(cfg GUIConfiguration, m *Model) error {
 	router.Get("/rest/errors", restGetErrors)
 	router.Get("/rest/discovery", restGetDiscovery)
 
+	router.Post("/rest/model", restPostModel)
 	router.Post("/rest/config", restPostConfig)
 	router.Post("/rest/restart", restPostRestart)
 	router.Post("/rest/reset", restPostReset)
@@ -116,6 +117,19 @@ func restGetModel(m *Model, w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(res)
+}
+
+func restPostModel(m *Model, r *http.Request) {
+	var qs = r.URL.Query()
+	var repo = qs.Get("repo")
+	var state = qs.Get("state")
+
+	switch state {
+	case "pause":
+		m.PauseRepo(repo)
+	case "resume":
+		m.ResumeRepo(repo)
+	}
 }
 
 func restGetConnections(m *Model, w http.ResponseWriter) {

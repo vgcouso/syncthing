@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/calmh/syncthing/buffers"
@@ -70,6 +71,9 @@ type puller struct {
 	requestSlots      chan bool
 	blocks            chan bqBlock
 	requestResults    chan requestResult
+	paused            bool
+	pausedMut         sync.Mutex
+	pausedCond        *sync.Cond
 }
 
 func newPuller(repo, dir string, model *Model, slots int) *puller {
@@ -84,6 +88,7 @@ func newPuller(repo, dir string, model *Model, slots int) *puller {
 		blocks:            make(chan bqBlock),
 		requestResults:    make(chan requestResult),
 	}
+	p.pausedCond = sync.NewCond(&p.pausedMut)
 
 	if slots > 0 {
 		// Read/write
@@ -133,6 +138,13 @@ func (p *puller) run() {
 				p.handleRequestResult(res)
 
 			case b := <-p.blocks:
+				p.pausedMut.Lock()
+				if p.paused {
+					p.pausedMut.Unlock()
+					continue
+				}
+				p.pausedMut.Unlock()
+
 				p.model.setState(p.repo, RepoSyncing)
 				changed = true
 				if p.handleBlock(b) {
@@ -141,6 +153,20 @@ func (p *puller) run() {
 				}
 
 			case <-timeout:
+				p.pausedMut.Lock()
+				if p.paused {
+					p.pausedMut.Unlock()
+					for _, of := range p.openFiles {
+						if of.file != nil {
+							of.file.Close()
+							os.Remove(of.temp)
+						}
+					}
+					p.openFiles = nil
+					break pull
+				}
+				p.pausedMut.Unlock()
+
 				if len(p.openFiles) == 0 && p.bq.empty() {
 					// Nothing more to do for the moment
 					break pull
@@ -561,4 +587,18 @@ func (p *puller) closeFile(f scanner.File) {
 	} else {
 		dlog.Printf("pull: error: %q / %q: %v", p.repo, f.Name, err)
 	}
+}
+
+func (p *puller) Pause() {
+	p.pausedMut.Lock()
+	p.paused = true
+	p.pausedMut.Unlock()
+
+}
+
+func (p *puller) Resume() {
+	p.pausedMut.Lock()
+	p.paused = false
+	p.pausedCond.Broadcast()
+	p.pausedMut.Unlock()
 }

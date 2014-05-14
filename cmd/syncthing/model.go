@@ -27,6 +27,7 @@ const (
 	RepoScanning
 	RepoSyncing
 	RepoCleaning
+	RepoPaused
 )
 
 type Model struct {
@@ -35,6 +36,7 @@ type Model struct {
 	repoNodes map[string][]string   // repo -> nodeIDs
 	nodeRepos map[string][]string   // nodeID -> repos
 	repoState map[string]repoState  // repo -> state
+	pullers   map[string]*puller    // repo -> puller
 	rmut      sync.RWMutex          // protects the above
 
 	cm *cid.Map
@@ -65,6 +67,7 @@ func NewModel(maxChangeBw int) *Model {
 		repoNodes: make(map[string][]string),
 		nodeRepos: make(map[string][]string),
 		repoState: make(map[string]repoState),
+		pullers:   make(map[string]*puller),
 		cm:        cid.NewMap(),
 		protoConn: make(map[string]protocol.Connection),
 		rawConn:   make(map[string]io.Closer),
@@ -86,7 +89,7 @@ func (m *Model) StartRepoRW(repo string, threads int) {
 	if dir, ok := m.repoDirs[repo]; !ok {
 		panic("cannot start without repo")
 	} else {
-		newPuller(repo, dir, m, threads)
+		m.pullers[repo] = newPuller(repo, dir, m, threads)
 	}
 }
 
@@ -94,6 +97,7 @@ func (m *Model) StartRepoRW(repo string, threads int) {
 // read only mode the model will announce files to the cluster but not
 // pull in any external changes.
 func (m *Model) StartRepoRO(repo string) {
+	m.pullers[repo] = nil
 	m.StartRepoRW(repo, 0) // zero threads => read only
 }
 
@@ -688,6 +692,24 @@ func (m *Model) setState(repo string, state repoState) {
 	m.rmut.Unlock()
 }
 
+func (m *Model) PauseRepo(repo string) {
+	m.rmut.Lock()
+	if p := m.pullers[repo]; p != nil {
+		p.Pause()
+		m.repoState[repo] = RepoPaused
+	}
+	m.rmut.Unlock()
+}
+
+func (m *Model) ResumeRepo(repo string) {
+	m.rmut.Lock()
+	if p := m.pullers[repo]; p != nil {
+		p.Resume()
+		m.repoState[repo] = RepoIdle
+	}
+	m.rmut.Unlock()
+}
+
 func (m *Model) State(repo string) string {
 	m.rmut.RLock()
 	state := m.repoState[repo]
@@ -701,6 +723,8 @@ func (m *Model) State(repo string) string {
 		return "cleaning"
 	case RepoSyncing:
 		return "syncing"
+	case RepoPaused:
+		return "paused"
 	default:
 		return "unknown"
 	}
