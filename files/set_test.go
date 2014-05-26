@@ -62,10 +62,6 @@ func TestGlobalSet(t *testing.T) {
 	if !reflect.DeepEqual(g, expectedGlobal) {
 		t.Errorf("Global incorrect;\n A: %v !=\n E: %v", g, expectedGlobal)
 	}
-
-	if lb := len(m.files); lb != 7 {
-		t.Errorf("Num files incorrect %d != 7\n%v", lb, m.files)
-	}
 }
 
 func TestLocalDeleted(t *testing.T) {
@@ -315,10 +311,6 @@ func TestGlobalReset(t *testing.T) {
 
 	if !reflect.DeepEqual(m.globalKey, expectedGlobalKey) {
 		t.Errorf("Global incorrect;\n%v !=\n%v", m.globalKey, expectedGlobalKey)
-	}
-
-	if lb := len(m.files); lb != 4 {
-		t.Errorf("Num files incorrect %d != 4\n%v", lb, m.files)
 	}
 }
 

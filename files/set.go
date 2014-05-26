@@ -8,6 +8,7 @@ import (
 	"github.com/calmh/syncthing/lamport"
 	"github.com/calmh/syncthing/protocol"
 	"github.com/calmh/syncthing/scanner"
+	"github.com/cznic/kv"
 )
 
 type fileRecord struct {
@@ -20,7 +21,7 @@ type bitset uint64
 
 type Set struct {
 	sync.Mutex
-	files              map[key]fileRecord
+	files              *kv.DB
 	remoteKey          [64]map[string]key
 	changes            [64]uint64
 	globalAvailability map[string]bitset
@@ -28,12 +29,79 @@ type Set struct {
 }
 
 func NewSet() *Set {
+	db, err := kv.CreateTemp("/tmp", "foo", "db", &kv.Options{})
+	if err != nil {
+		panic(err)
+	}
 	var m = Set{
-		files:              make(map[key]fileRecord),
+		files:              db,
 		globalAvailability: make(map[string]bitset),
 		globalKey:          make(map[string]key),
 	}
 	return &m
+}
+
+func (m *Set) setFile(k key, r fileRecord) {
+	kbs := k.MarshalXDR()
+	rbs := r.File.MarshalXDR()
+	var t [3]byte
+	if r.Global {
+		t[0] = 1
+	} else {
+		t[0] = 0
+	}
+	t[1] = byte(r.Usage >> 8)
+	t[2] = byte(r.Usage)
+	rbs = append(rbs, t[:]...)
+	m.files.Set(kbs, rbs)
+}
+
+func (m *Set) getFile(k key) fileRecord {
+	r, _ := m.getFileOK(k)
+	return r
+}
+
+func (m *Set) getFileOK(k key) (fileRecord, bool) {
+	kbs := k.MarshalXDR()
+	rbs, err := m.files.Get(nil, kbs)
+	if err != nil || len(rbs) == 0 {
+		return fileRecord{}, false
+	}
+	return frBytes(rbs), true
+}
+
+func frBytes(rbs []byte) fileRecord {
+	var f scanner.File
+	f.UnmarshalXDR(rbs)
+	isGlobal := rbs[len(rbs)-3] != 0
+	usage := int(rbs[len(rbs)-2])<<8 + int(rbs[len(rbs)-1])
+	return fileRecord{
+		File:   f,
+		Global: isGlobal,
+		Usage:  usage,
+	}
+}
+
+func (m *Set) forEachFile(fn func(key, fileRecord)) {
+	it, err := m.files.SeekFirst()
+	if err != nil {
+		return
+	}
+	for {
+		kbs, rbs, err := it.Next()
+		if err != nil {
+			break
+		}
+		var k key
+		k.UnmarshalXDR(kbs)
+		r := frBytes(rbs)
+		fn(k, r)
+	}
+}
+
+func (m *Set) deleteFile(k key) {
+	kbs := k.MarshalXDR()
+	m.files.Delete(kbs)
 }
 
 func (m *Set) Replace(id uint, fs []scanner.File) {
@@ -75,7 +143,7 @@ func (m *Set) ReplaceWithDelete(id uint, fs []scanner.File) {
 
 		for _, ck := range m.remoteKey[cid.LocalID] {
 			if _, ok := nf[ck.Name]; !ok {
-				cf := m.files[ck].File
+				cf := m.getFile(ck).File
 				if !protocol.IsDeleted(cf.Flags) {
 					cf.Flags |= protocol.FlagDeleted
 					cf.Blocks = nil
@@ -111,15 +179,14 @@ func (m *Set) Need(id uint) []scanner.File {
 	m.Lock()
 	var fs = make([]scanner.File, 0, len(m.globalKey)/2) // Just a guess, but avoids too many reallocations
 	rkID := m.remoteKey[id]
-	for gk, gf := range m.files {
+	m.forEachFile(func(gk key, gf fileRecord) {
 		if !gf.Global || gf.File.Suppressed {
-			continue
+			return
 		}
-
 		if gk.newerThan(rkID[gk.Name]) {
 			fs = append(fs, gf.File)
 		}
-	}
+	})
 	m.Unlock()
 	return fs
 }
@@ -131,7 +198,7 @@ func (m *Set) Have(id uint) []scanner.File {
 	var fs = make([]scanner.File, 0, len(m.remoteKey[id]))
 	m.Lock()
 	for _, rk := range m.remoteKey[id] {
-		fs = append(fs, m.files[rk].File)
+		fs = append(fs, m.getFile(rk).File)
 	}
 	m.Unlock()
 	return fs
@@ -143,11 +210,11 @@ func (m *Set) Global() []scanner.File {
 	}
 	m.Lock()
 	var fs = make([]scanner.File, 0, len(m.globalKey))
-	for _, file := range m.files {
+	m.forEachFile(func(_ key, file fileRecord) {
 		if file.Global {
 			fs = append(fs, file.File)
 		}
-	}
+	})
 	m.Unlock()
 	return fs
 }
@@ -158,7 +225,7 @@ func (m *Set) Get(id uint, file string) scanner.File {
 	if debug {
 		l.Debugf("Get(%d, %q)", id, file)
 	}
-	return m.files[m.remoteKey[id][file]].File
+	return m.getFile(m.remoteKey[id][file]).File
 }
 
 func (m *Set) GetGlobal(file string) scanner.File {
@@ -167,7 +234,7 @@ func (m *Set) GetGlobal(file string) scanner.File {
 	if debug {
 		l.Debugf("GetGlobal(%q)", file)
 	}
-	return m.files[m.globalKey[file]].File
+	return m.getFile(m.globalKey[file]).File
 }
 
 func (m *Set) Availability(name string) bitset {
@@ -192,7 +259,7 @@ func (m *Set) Changes(id uint) uint64 {
 func (m *Set) equals(id uint, fs []scanner.File) bool {
 	curWithoutDeleted := make(map[string]key)
 	for _, k := range m.remoteKey[id] {
-		f := m.files[k].File
+		f := m.getFile(k).File
 		if !protocol.IsDeleted(f.Flags) {
 			curWithoutDeleted[f.Name] = k
 		}
@@ -225,14 +292,14 @@ func (m *Set) update(cid uint, fs []scanner.File) {
 		remFiles[n] = fk
 
 		// Keep the block list or increment the usage
-		if br, ok := m.files[fk]; !ok {
-			m.files[fk] = fileRecord{
+		if br, ok := m.getFileOK(fk); !ok {
+			m.setFile(fk, fileRecord{
 				Usage: 1,
 				File:  f,
-			}
+			})
 		} else {
 			br.Usage++
-			m.files[fk] = br
+			m.setFile(fk, br)
 		}
 
 		// Update global view
@@ -244,13 +311,13 @@ func (m *Set) update(cid uint, fs []scanner.File) {
 			m.globalAvailability[n] = av
 		case fk.newerThan(gk):
 			if ok {
-				f := m.files[gk]
+				f := m.getFile(gk)
 				f.Global = false
-				m.files[gk] = f
+				m.setFile(gk, f)
 			}
-			f := m.files[fk]
+			f := m.getFile(fk)
 			f.Global = true
-			m.files[fk] = f
+			m.setFile(fk, f)
 			m.globalKey[n] = fk
 			m.globalAvailability[n] = 1 << cid
 		}
@@ -261,13 +328,13 @@ func (m *Set) replace(cid uint, fs []scanner.File) {
 	// Decrement usage for all files belonging to this remote, and remove
 	// those that are no longer needed.
 	for _, fk := range m.remoteKey[cid] {
-		br, ok := m.files[fk]
+		br, ok := m.getFileOK(fk)
 		switch {
 		case ok && br.Usage == 1:
-			delete(m.files, fk)
+			m.deleteFile(fk)
 		case ok && br.Usage > 1:
 			br.Usage--
-			m.files[fk] = br
+			m.setFile(fk, br)
 		}
 	}
 

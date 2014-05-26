@@ -70,6 +70,19 @@ func (r *Reader) ReadBytesMaxInto(max int, dst []byte) []byte {
 	return dst[:l]
 }
 
+func (r *Reader) ReadBool() bool {
+	if r.err != nil {
+		return false
+	}
+	_, r.err = io.ReadFull(r.r, r.b[:4])
+	r.tot += 4
+	v := r.b[0] != 0
+	if debug {
+		dl.Debugf("rd bool=%v", v)
+	}
+	return v
+}
+
 func (r *Reader) ReadUint16() uint16 {
 	if r.err != nil {
 		return 0

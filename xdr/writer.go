@@ -60,6 +60,29 @@ func (w *Writer) WriteBytes(bs []byte) (int, error) {
 	return l, w.err
 }
 
+func (w *Writer) WriteBool(v bool) (int, error) {
+	if w.err != nil {
+		return 0, w.err
+	}
+
+	if debug {
+		dl.Debugf("wr bool=%v", v)
+	}
+
+	w.b[0] = 0
+	if v {
+		w.b[0] = 1
+	}
+	w.b[1] = 0
+	w.b[2] = 0
+	w.b[3] = 0
+
+	var l int
+	l, w.err = w.w.Write(w.b[:4])
+	w.tot += l
+	return l, w.err
+}
+
 func (w *Writer) WriteUint16(v uint16) (int, error) {
 	if w.err != nil {
 		return 0, w.err
