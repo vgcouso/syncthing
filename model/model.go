@@ -600,7 +600,7 @@ func (m *Model) broadcastIndexLoop() {
 	}
 }
 
-func (m *Model) AddRepo(cfg config.RepositoryConfiguration) {
+func (m *Model) AddRepo(cfg config.RepositoryConfiguration, dbpath string) {
 	if m.started {
 		panic("cannot add repo to started model")
 	}
@@ -610,7 +610,7 @@ func (m *Model) AddRepo(cfg config.RepositoryConfiguration) {
 
 	m.rmut.Lock()
 	m.repoCfgs[cfg.ID] = cfg
-	m.repoFiles[cfg.ID] = files.NewSet()
+	m.repoFiles[cfg.ID] = files.NewSet(cfg.ID, dbpath)
 	m.suppressor[cfg.ID] = &suppressor{threshold: int64(m.cfg.Options.MaxChangeKbps)}
 
 	m.repoNodes[cfg.ID] = make([]string, len(cfg.Nodes))
@@ -697,7 +697,7 @@ func (m *Model) SaveIndexes(dir string) {
 		fs := m.protocolIndex(repo)
 		err := m.saveIndex(repo, dir, fs)
 		if err != nil {
-			l.Warnln("Saving index for %q: %v", repo, err)
+			l.Warnf("Saving index for %q: %v", repo, err)
 		}
 	}
 	m.rmut.RUnlock()

@@ -29,13 +29,19 @@ type Set struct {
 	changes            [64]uint64
 	globalAvailability map[string]bitset
 	globalKey          map[string]key
+	db                 *fileDB
 }
 
-func NewSet() *Set {
+func NewSet(repo string, dbpath string) *Set {
+	db, err := newFileDB(repo, dbpath)
+	if err != nil {
+		l.Fatalln(err)
+	}
 	var m = Set{
 		files:              make(map[key]fileRecord),
 		globalAvailability: make(map[string]bitset),
 		globalKey:          make(map[string]key),
+		db:                 db,
 	}
 	return &m
 }
@@ -217,6 +223,7 @@ func (m *Set) update(cid uint, fs []scanner.File) {
 	if remFiles == nil {
 		l.Fatalln("update before replace for cid", cid)
 	}
+
 	for _, f := range fs {
 		n := f.Name
 		fk := keyFor(f)
@@ -227,6 +234,10 @@ func (m *Set) update(cid uint, fs []scanner.File) {
 		}
 
 		remFiles[n] = fk
+		err := m.db.updateFile(cid, f)
+		if err != nil {
+			l.Fatalln(err)
+		}
 
 		// Keep the block list or increment the usage
 		if br, ok := m.files[fk]; !ok {

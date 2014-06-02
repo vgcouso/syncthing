@@ -262,7 +262,7 @@ func main() {
 			continue
 		}
 		repo.Directory = expandTilde(repo.Directory)
-		m.AddRepo(repo)
+		m.AddRepo(repo, filepath.Join(confDir, "index.db"))
 	}
 
 	// GUI
