@@ -3,7 +3,7 @@
 export COPYFILE_DISABLE=true
 export GO386=387 # Don't use SSE on 32 bit builds
 
-distFiles=(README.md LICENSE) # apart from the binary itself
+distFiles=(README.md LICENSE CONTRIBUTORS) # apart from the binary itself
 version=$(git describe --always --dirty)
 date=$(git show -s --format=%ct)
 user=$(whoami)
@@ -60,7 +60,10 @@ zipDist() {
 	name="$1"
 	rm -rf "$name"
 	mkdir -p "$name"
-	cp syncthing.exe "${distFiles[@]}" "$name"
+	for f in "${distFiles[@]}" ; do
+		sed 's/$//' < "$f" > "$name/$f.txt"
+	done
+	cp syncthing.exe "$name"
 	sign "$name/syncthing.exe"
 	zip -r "$name.zip" "$name"
 	rm -rf "$name"

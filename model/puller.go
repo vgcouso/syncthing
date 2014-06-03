@@ -1,3 +1,7 @@
+// Copyright (C) 2014 Jakob Borg and other contributors. All rights reserved.
+// Use of this source code is governed by an MIT-style license that can be
+// found in the LICENSE file.
+
 package model
 
 import (
@@ -5,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/calmh/syncthing/buffers"
@@ -219,6 +224,10 @@ func (p *puller) fixupDirectories() {
 	var changed = 0
 
 	var walkFn = func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
 		if !info.IsDir() {
 			return nil
 		}
@@ -274,7 +283,10 @@ func (p *puller) fixupDirectories() {
 			t := time.Unix(cur.Modified, 0)
 			err := os.Chtimes(path, t, t)
 			if err != nil {
-				l.Warnf("Restoring folder modtime: %q: %v", path, err)
+				if runtime.GOOS != "windows" {
+					// https://code.google.com/p/go/issues/detail?id=8090
+					l.Warnf("Restoring folder modtime: %q: %v", path, err)
+				}
 			} else {
 				changed++
 				if debug {
@@ -365,6 +377,29 @@ func (p *puller) handleBlock(b bqBlock) bool {
 		} else if debug {
 			l.Debugf("ignore delete dir: %v", f)
 		}
+		p.model.updateLocal(p.repoCfg.ID, f)
+		return true
+	}
+
+	if len(b.copy) > 0 && len(b.copy) == len(b.file.Blocks) && b.last {
+		// We are supposed to copy the entire file, and then fetch nothing.
+		// We don't actually need to make the copy.
+		if debug {
+			l.Debugln("taking shortcut:", f)
+		}
+		fp := filepath.Join(p.repoCfg.Directory, f.Name)
+		t := time.Unix(f.Modified, 0)
+		err := os.Chtimes(fp, t, t)
+		if debug && err != nil {
+			l.Debugf("pull: error: %q / %q: %v", p.repoCfg.ID, f.Name, err)
+		}
+		if !p.repoCfg.IgnorePerms && protocol.HasPermissionBits(f.Flags) {
+			err = os.Chmod(fp, os.FileMode(f.Flags&0777))
+			if debug && err != nil {
+				l.Debugf("pull: error: %q / %q: %v", p.repoCfg.ID, f.Name, err)
+			}
+		}
+
 		p.model.updateLocal(p.repoCfg.ID, f)
 		return true
 	}

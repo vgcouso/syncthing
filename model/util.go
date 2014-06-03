@@ -1,3 +1,7 @@
+// Copyright (C) 2014 Jakob Borg and other contributors. All rights reserved.
+// Use of this source code is governed by an MIT-style license that can be
+// found in the LICENSE file.
+
 package model
 
 import (
@@ -81,16 +85,7 @@ func compareClusterConfig(local, remote protocol.ClusterConfigMessage) error {
 					}
 				}
 			}
-		} else {
-			return ClusterConfigMismatch(fmt.Errorf("remote is missing repository %q", repo))
 		}
-	}
-
-	for repo := range rm {
-		if _, ok := lm[repo]; !ok {
-			return ClusterConfigMismatch(fmt.Errorf("remote has extra repository %q", repo))
-		}
-
 	}
 
 	return nil

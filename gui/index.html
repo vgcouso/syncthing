@@ -1,4 +1,9 @@
 <!DOCTYPE html>
+<!--
+Copyright (C) 2014 Jakob Borg and other contributors. All rights reserved.
+Use of this source code is governed by an MIT-style license that can be
+found in the LICENSE file.
+-->
 <html lang="en" ng-app="syncthing" ng-controller="SyncthingCtrl" class="ng-cloak">
 <head>
   <meta charset="utf-8">
@@ -60,11 +65,21 @@
     }
 
     .table th {
+      white-space:nowrap;
       font-weight: 400;
     }
 
     .table td {
       padding-left: 20px !important;
+    }
+
+    @media (max-width:767px) {
+      .table-responsive>.table>tbody>tr>td {
+        /* revert a bootstrap setting e.g.:
+         * for mobile phones to allow linebreaks in long repro folder/shared with
+         * columns. */
+        white-space: normal;
+      }
     }
   </style>
 </head>
@@ -124,13 +139,13 @@
           <div class="panel panel-{{repoClass(repo.ID)}}" ng-repeat="repo in repoList()">
             <div class="panel-heading">
               <h3 class="panel-title">
-                <a data-toggle="collapse" data-parent="#repositories" href="#repo-{{repo.ID}}">
+                <a data-toggle="collapse" data-parent="#repositories" href="#repo-{{$index}}">
                   <span class="glyphicon glyphicon-hdd"></span> {{repo.Directory | shortPath}}
                   <span class="pull-right hidden-xs">{{repoStatus(repo.ID)}}</span>
                 </a>
               </h3>
             </div>
-            <div id="repo-{{repo.ID}}" class="panel-collapse collapse">
+            <div id="repo-{{$index}}" class="panel-collapse collapse">
               <div class="panel-body">
                 <div class="table-responsive">
                   <table class="table table-condensed table-striped">
@@ -142,6 +157,10 @@
                       <tr>
                         <th><span class="glyphicon glyphicon-folder-open"></span>&emsp;Folder</th>
                         <td class="text-right">{{repo.Directory}}</td>
+                      </tr>
+                      <tr ng-if="model[repo.ID].invalid">
+                        <th><span class="glyphicon glyphicon-warning-sign"></span>&emsp;Error</th>
+                        <td class="text-right">{{model[repo.ID].invalid}}</td>
                       </tr>
                       <tr>
                         <th><span class="glyphicon glyphicon-comment"></span>&emsp;Synchronization</th>
@@ -194,10 +213,10 @@
           <div class="panel panel-default" ng-repeat="nodeCfg in [thisNode()]">
             <div class="panel-heading">
               <h3 class="panel-title">
-                <a data-toggle="collapse" data-parent="#nodes" href="#node-{{nodeCfg.NodeID}}"><span class="glyphicon glyphicon-home"></span> {{nodeName(nodeCfg)}}</a>
+                <a data-toggle="collapse" data-parent="#nodes" href="#node-this"><span class="glyphicon glyphicon-home"></span> {{nodeName(nodeCfg)}}</a>
               </h3>
             </div>
-            <div id="node-{{nodeCfg.NodeID}}" class="panel-collapse collapse in">
+            <div id="node-this" class="panel-collapse collapse in">
               <div class="panel-body">
                 <div class="table-responsive">
                   <table class="table table-condensed table-striped">
@@ -240,14 +259,14 @@
           <div class="panel panel-{{nodeClass(nodeCfg)}}" ng-repeat="nodeCfg in otherNodes()">
             <div class="panel-heading">
               <h3 class="panel-title">
-                <a data-toggle="collapse" data-parent="#nodes" href="#node-{{nodeCfg.NodeID}}">
+                <a data-toggle="collapse" data-parent="#nodes" href="#node-{{$index}}">
                   <span class="glyphicon glyphicon-retweet"></span>
                   {{nodeName(nodeCfg)}}
                   <span class="pull-right hidden-xs">{{nodeStatus(nodeCfg)}}</span>
                 </a>
               </h3>
             </div>
-            <div id="node-{{nodeCfg.NodeID}}" class="panel-collapse collapse">
+            <div id="node-{{$index}}" class="panel-collapse collapse">
               <div class="panel-body">
                 <div class="table-responsive">
                   <table class="table table-condensed table-striped">
@@ -414,13 +433,14 @@
           <form role="form" name="nodeEditor">
             <div class="form-group" ng-class="{'has-error': nodeEditor.nodeID.$invalid && nodeEditor.nodeID.$dirty}">
               <label for="nodeID">Node ID</label>
-              <input ng-if="!editingExisting" name="nodeID" id="nodeID" class="form-control text-monospace" type="text" ng-model="currentNode.NodeID" required></input>
+              <input ng-if="!editingExisting" name="nodeID" id="nodeID" class="form-control text-monospace" type="text" ng-model="currentNode.NodeID" required valid-nodeid></input>
               <div ng-if="editingExisting" class="well well-sm text-monospace">{{currentNode.NodeID | chunkID}}</div>
               <p class="help-block">
                 <span ng-if="nodeEditor.nodeID.$valid || nodeEditor.nodeID.$pristine">The node ID to enter here can be found in the "Edit > Show ID" dialog on the other node. Spaces and dashes are optional (ignored).
                   <span ng-show="!editingExisting">When adding a new node, keep in mind that <em>this node</em> must be added on the other side too.</span>
                 </span>
                 <span ng-if="nodeEditor.nodeID.$error.required && nodeEditor.nodeID.$dirty">The node ID cannot be blank.</span>
+                <span ng-if="nodeEditor.nodeID.$error.validNodeid && nodeEditor.nodeID.$dirty">The entered node ID does not look valid. It should be a 52 character string consisting of letters and numbers, with spaces and dashes being optional.</span>
               </p>
             </div>
             <div class="form-group">
@@ -459,11 +479,12 @@
               <div class="col-md-12">
                 <div class="form-group" ng-class="{'has-error': repoEditor.repoID.$invalid && repoEditor.repoID.$dirty}">
                   <label for="repoID">Repository ID</label>
-                  <input name="repoID" placeholder="documents" ng-disabled="editingExisting" id="repoID" class="form-control" type="text" ng-model="currentRepo.ID" required unique-repo></input>
+                  <input name="repoID" placeholder="documents" ng-disabled="editingExisting" id="repoID" class="form-control" type="text" ng-model="currentRepo.ID" required unique-repo ng-pattern="/^[a-zA-Z0-9-_.]{1,64}$/"></input>
                   <p class="help-block">
                     <span ng-if="repoEditor.repoID.$valid || repoEditor.repoID.$pristine">Short identifier for the repository. Must be the same on all cluster nodes.</span>
                     <span ng-if="repoEditor.repoID.$error.uniqueRepo">The repository ID must be unique.</span>
                     <span ng-if="repoEditor.repoID.$error.required && repoEditor.repoID.$dirty">The repository ID cannot be blank.</span>
+                    <span ng-if="repoEditor.repoID.$error.pattern && repoEditor.repoID.$dirty">The repository ID must be a short identifier (64 characters or less) consisting of letters, numbers and the the <code>-_.</code> characters only.</span>
                   </p>
                 </div>
                 <div class="form-group" ng-class="{'has-error': repoEditor.repoPath.$invalid && repoEditor.repoPath.$dirty}">
@@ -508,7 +529,7 @@
                 <div class="form-group">
                   <div class="checkbox">
                     <label>
-                      <input type="checkbox" ng-model="currentRepo.simpleFileVersioning"> Simple File Versioning
+                      <input type="checkbox" ng-model="currentRepo.simpleFileVersioning"> File Versioning
                     </label>
                   </div>
                   <p class="help-block">Files are moved to date stamped versions in a <code>.stversions</code> folder when replaced or deleted by syncthing.</p>

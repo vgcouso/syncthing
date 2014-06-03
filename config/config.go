@@ -1,3 +1,7 @@
+// Copyright (C) 2014 Jakob Borg and other contributors. All rights reserved.
+// Use of this source code is governed by an MIT-style license that can be
+// found in the LICENSE file.
+
 // Package config implements reading and writing of the syncthing configuration file.
 package config
 
@@ -244,7 +248,7 @@ func Load(rd io.Reader, myID string) (Configuration, error) {
 		repo := &cfg.Repositories[i]
 
 		if len(repo.Directory) == 0 {
-			repo.Invalid = "empty directory"
+			repo.Invalid = "no directory configured"
 			continue
 		}
 

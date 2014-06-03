@@ -1,3 +1,7 @@
+// Copyright (C) 2014 Jakob Borg and other contributors. All rights reserved.
+// Use of this source code is governed by an MIT-style license that can be
+// found in the LICENSE file.
+
 /*jslint browser: true, continue: true, plusplus: true */
 /*global $: false, angular: false */
 
@@ -16,6 +20,7 @@ syncthing.controller('SyncthingCtrl', function ($scope, $http) {
     $scope.myID = '';
     $scope.nodes = [];
     $scope.configInSync = true;
+    $scope.protocolChanged = false;
     $scope.errors = [];
     $scope.seenError = '';
     $scope.model = {};
@@ -122,7 +127,7 @@ syncthing.controller('SyncthingCtrl', function ($scope, $http) {
         }
 
         return state;
-    }
+    };
 
     $scope.repoClass = function (repo) {
         if (typeof $scope.model[repo] === 'undefined') {
@@ -141,7 +146,7 @@ syncthing.controller('SyncthingCtrl', function ($scope, $http) {
             return 'primary';
         }
         return 'info';
-    }
+    };
 
     $scope.syncPercentage = function (repo) {
         if (typeof $scope.model[repo] === 'undefined') {
@@ -255,13 +260,19 @@ syncthing.controller('SyncthingCtrl', function ($scope, $http) {
         $scope.config.workingOptions = angular.copy($scope.config.Options);
         $scope.config.workingGUI = angular.copy($scope.config.GUI);
         $('#settings').modal({backdrop: 'static', keyboard: true});
-    }
+    };
 
     $scope.saveSettings = function () {
         // Make sure something changed
         var changed = ! angular.equals($scope.config.Options, $scope.config.workingOptions) ||
                       ! angular.equals($scope.config.GUI, $scope.config.workingGUI);
         if(changed){
+            // see if protocol will need to be changed on restart
+            if($scope.config.GUI.UseTLS !== $scope.config.workingGUI.UseTLS){
+                $scope.protocolChanged = true;
+            }
+
+            // Apply new settings locally
             $scope.config.Options = angular.copy($scope.config.workingOptions);
             $scope.config.GUI = angular.copy($scope.config.workingGUI);
 
@@ -278,6 +289,21 @@ syncthing.controller('SyncthingCtrl', function ($scope, $http) {
         $('#restarting').modal({backdrop: 'static', keyboard: false});
         $http.post(urlbase + '/restart');
         $scope.configInSync = true;
+
+        // Switch webpage protocol if needed
+        if($scope.protocolChanged){
+            var protocol = 'http';
+
+            if($scope.config.GUI.UseTLS){
+               protocol = 'https';
+            }
+
+            setTimeout(function(){
+                window.location.protocol = protocol;
+            }, 1000);
+
+            $scope.protocolChanged = false;
+        }
     };
 
     $scope.shutdown = function () {
@@ -402,7 +428,7 @@ syncthing.controller('SyncthingCtrl', function ($scope, $http) {
 
     $scope.repoList = function () {
         return repoList($scope.repos);
-    }
+    };
 
     $scope.editRepo = function (nodeCfg) {
         $scope.currentRepo = angular.copy(nodeCfg);
@@ -544,7 +570,7 @@ function repoMap(l) {
 function repoList(m) {
     var l = [];
     for (var id in m) {
-        l.push(m[id])
+        l.push(m[id]);
     }
     l.sort(repoCompare);
     return l;
@@ -633,7 +659,7 @@ syncthing.filter('chunkID', function () {
         if (!parts)
             return "";
         return parts.join('-');
-    }
+    };
 });
 
 syncthing.filter('shortPath', function () {
@@ -645,7 +671,13 @@ syncthing.filter('shortPath', function () {
             return input;
         }
         return ".../" + parts.slice(parts.length-2).join("/");
-    }
+    };
+});
+
+syncthing.filter('clean', function () {
+    return function (input) {
+        return encodeURIComponent(input).replace(/%/g, '');
+    };
 });
 
 syncthing.directive('optionEditor', function () {
@@ -674,6 +706,28 @@ syncthing.directive('uniqueRepo', function() {
                 } else {
                     // the repo is unique
                     ctrl.$setValidity('uniqueRepo', true);
+                }
+                return viewValue;
+            });
+        }
+    };
+});
+
+syncthing.directive('validNodeid', function() {
+    return {
+        require: 'ngModel',
+        link: function(scope, elm, attrs, ctrl) {
+            ctrl.$parsers.unshift(function(viewValue) {
+                if (scope.editingExisting) {
+                    // we shouldn't validate
+                    ctrl.$setValidity('validNodeid', true);
+                } else {
+                    var cleaned = viewValue.replace(/ /g, '').replace(/-/g, '').toUpperCase().trim();
+                    if (cleaned.match(/^[A-Z2-7]{52}$/)) {
+                        ctrl.$setValidity('validNodeid', true);
+                    } else {
+                        ctrl.$setValidity('validNodeid', false);
+                    }
                 }
                 return viewValue;
             });

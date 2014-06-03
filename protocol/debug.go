@@ -2,7 +2,7 @@
 // Use of this source code is governed by an MIT-style license that can be
 // found in the LICENSE file.
 
-package scanner
+package protocol
 
 import (
 	"os"
@@ -12,6 +12,6 @@ import (
 )
 
 var (
-	debug = strings.Contains(os.Getenv("STTRACE"), "scanner") || os.Getenv("STTRACE") == "all"
+	debug = strings.Contains(os.Getenv("STTRACE"), "protocol") || os.Getenv("STTRACE") == "all"
 	l     = logger.DefaultLogger
 )

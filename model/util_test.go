@@ -1,3 +1,7 @@
+// Copyright (C) 2014 Jakob Borg and other contributors. All rights reserved.
+// Use of this source code is governed by an MIT-style license that can be
+// found in the LICENSE file.
+
 package model
 
 import (
@@ -24,24 +28,6 @@ var testcases = []struct {
 		local: protocol.ClusterConfigMessage{
 			Repositories: []protocol.Repository{
 				{ID: "foo"},
-			},
-		},
-		remote: protocol.ClusterConfigMessage{ClientName: "c", ClientVersion: "d"},
-		err:    `remote is missing repository "foo"`,
-	},
-	{
-		local: protocol.ClusterConfigMessage{ClientName: "c", ClientVersion: "d"},
-		remote: protocol.ClusterConfigMessage{
-			Repositories: []protocol.Repository{
-				{ID: "foo"},
-			},
-		},
-		err: `remote has extra repository "foo"`,
-	},
-	{
-		local: protocol.ClusterConfigMessage{
-			Repositories: []protocol.Repository{
-				{ID: "foo"},
 				{ID: "bar"},
 			},
 		},
@@ -52,38 +38,6 @@ var testcases = []struct {
 			},
 		},
 		err: "",
-	},
-	{
-		local: protocol.ClusterConfigMessage{
-			Repositories: []protocol.Repository{
-				{ID: "quux"},
-				{ID: "foo"},
-				{ID: "bar"},
-			},
-		},
-		remote: protocol.ClusterConfigMessage{
-			Repositories: []protocol.Repository{
-				{ID: "bar"},
-				{ID: "quux"},
-			},
-		},
-		err: `remote is missing repository "foo"`,
-	},
-	{
-		local: protocol.ClusterConfigMessage{
-			Repositories: []protocol.Repository{
-				{ID: "quux"},
-				{ID: "bar"},
-			},
-		},
-		remote: protocol.ClusterConfigMessage{
-			Repositories: []protocol.Repository{
-				{ID: "bar"},
-				{ID: "foo"},
-				{ID: "quux"},
-			},
-		},
-		err: `remote has extra repository "foo"`,
 	},
 	{
 		local: protocol.ClusterConfigMessage{

@@ -1,3 +1,7 @@
+// Copyright (C) 2014 Jakob Borg and other contributors. All rights reserved.
+// Use of this source code is governed by an MIT-style license that can be
+// found in the LICENSE file.
+
 package scanner
 
 import (
@@ -284,10 +288,12 @@ func (w *Walker) ignoreFile(patterns map[string][]string, file string) bool {
 }
 
 func checkDir(dir string) error {
-	if info, err := os.Stat(dir); err != nil {
+	if info, err := os.Lstat(dir); err != nil {
 		return err
 	} else if !info.IsDir() {
 		return errors.New(dir + ": not a directory")
+	} else if debug {
+		l.Debugln("checkDir", dir, info)
 	}
 	return nil
 }

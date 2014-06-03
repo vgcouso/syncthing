@@ -1,3 +1,7 @@
+// Copyright (C) 2014 Jakob Borg and other contributors. All rights reserved.
+// Use of this source code is governed by an MIT-style license that can be
+// found in the LICENSE file.
+
 package model
 
 import (
@@ -186,8 +190,8 @@ func (m *Model) ConnectionStats() map[string]ConnectionInfo {
 	res["total"] = ConnectionInfo{
 		Statistics: protocol.Statistics{
 			At:            time.Now(),
-			InBytesTotal:  int(in),
-			OutBytesTotal: int(out),
+			InBytesTotal:  in,
+			OutBytesTotal: out,
 		},
 	}
 
@@ -275,7 +279,8 @@ func (m *Model) Index(nodeID string, repo string, fs []protocol.FileInfo) {
 	if r, ok := m.repoFiles[repo]; ok {
 		r.Replace(id, files)
 	} else {
-		l.Warnf("Index from %s for nonexistant repo %q; dropping", nodeID, repo)
+		l.Warnf("Index from %s for unexpected repo %q; verify configuration", nodeID, repo)
+
 	}
 	m.rmut.RUnlock()
 }
@@ -566,7 +571,10 @@ func (m *Model) broadcastIndexLoop() {
 			idx := m.protocolIndex(repo)
 			indexWg.Add(1)
 			go func() {
-				m.saveIndex(repo, m.indexDir, idx)
+				err := m.saveIndex(repo, m.indexDir, idx)
+				if err != nil {
+					l.Warnf("Saving index for %q: %v", repo, err)
+				}
 				indexWg.Done()
 			}()
 
@@ -628,7 +636,10 @@ func (m *Model) ScanRepos() {
 	for _, repo := range repos {
 		repo := repo
 		go func() {
-			m.ScanRepo(repo)
+			err := m.ScanRepo(repo)
+			if err != nil {
+				invalidateRepo(m.cfg, repo, err)
+			}
 			wg.Done()
 		}()
 	}
@@ -684,7 +695,10 @@ func (m *Model) SaveIndexes(dir string) {
 	m.rmut.RLock()
 	for repo := range m.repoCfgs {
 		fs := m.protocolIndex(repo)
-		m.saveIndex(repo, dir, fs)
+		err := m.saveIndex(repo, dir, fs)
+		if err != nil {
+			l.Warnln("Saving index for %q: %v", repo, err)
+		}
 	}
 	m.rmut.RUnlock()
 }
@@ -698,26 +712,43 @@ func (m *Model) LoadIndexes(dir string) {
 	m.rmut.RUnlock()
 }
 
-func (m *Model) saveIndex(repo string, dir string, fs []protocol.FileInfo) {
+func (m *Model) saveIndex(repo string, dir string, fs []protocol.FileInfo) error {
 	id := fmt.Sprintf("%x", sha1.Sum([]byte(m.repoCfgs[repo].Directory)))
 	name := id + ".idx.gz"
 	name = filepath.Join(dir, name)
 
 	idxf, err := os.Create(name + ".tmp")
 	if err != nil {
-		return
+		return err
 	}
 
 	gzw := gzip.NewWriter(idxf)
 
-	protocol.IndexMessage{
+	n, err := protocol.IndexMessage{
 		Repository: repo,
 		Files:      fs,
 	}.EncodeXDR(gzw)
-	gzw.Close()
-	idxf.Close()
+	if err != nil {
+		gzw.Close()
+		idxf.Close()
+		return err
+	}
 
-	osutil.Rename(name+".tmp", name)
+	err = gzw.Close()
+	if err != nil {
+		return err
+	}
+
+	err = idxf.Close()
+	if err != nil {
+		return err
+	}
+
+	if debug {
+		l.Debugln("wrote index,", n, "bytes uncompressed")
+	}
+
+	return osutil.Rename(name+".tmp", name)
 }
 
 func (m *Model) loadIndex(repo string, dir string) []protocol.FileInfo {

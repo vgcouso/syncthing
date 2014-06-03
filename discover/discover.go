@@ -1,3 +1,7 @@
+// Copyright (C) 2014 Jakob Borg and other contributors. All rights reserved.
+// Use of this source code is governed by an MIT-style license that can be
+// found in the LICENSE file.
+
 package discover
 
 import (
@@ -187,9 +191,8 @@ func (d *Discoverer) sendExternalAnnouncements() {
 	} else {
 		buf = d.announcementPkt()
 	}
-	var errCounter = 0
 
-	for errCounter < maxErrors {
+	for {
 		var ok bool
 
 		if debug {
@@ -201,11 +204,8 @@ func (d *Discoverer) sendExternalAnnouncements() {
 			if debug {
 				l.Debugln("discover: warning:", err)
 			}
-			errCounter++
 			ok = false
 		} else {
-			errCounter = 0
-
 			// Verify that the announce server responds positively for our node ID
 
 			time.Sleep(1 * time.Second)
@@ -214,7 +214,6 @@ func (d *Discoverer) sendExternalAnnouncements() {
 				l.Debugln("discover: external lookup check:", res)
 			}
 			ok = len(res) > 0
-
 		}
 
 		d.extAnnounceOKmut.Lock()
@@ -227,7 +226,6 @@ func (d *Discoverer) sendExternalAnnouncements() {
 			time.Sleep(60 * time.Second)
 		}
 	}
-	l.Warnf("Global discovery: %v: stopping due to too many errors: %v", remote, err)
 }
 
 func (d *Discoverer) recvAnnouncements() {

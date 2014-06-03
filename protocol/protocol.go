@@ -1,3 +1,7 @@
+// Copyright (C) 2014 Jakob Borg and other contributors. All rights reserved.
+// Use of this source code is governed by an MIT-style license that can be
+// found in the LICENSE file.
+
 package protocol
 
 import (
@@ -92,8 +96,8 @@ type asyncResult struct {
 }
 
 const (
-	pingTimeout  = 4 * time.Minute
-	pingIdleTime = 5 * time.Minute
+	pingTimeout  = 300 * time.Second
+	pingIdleTime = 600 * time.Second
 )
 
 func NewConnection(nodeID string, reader io.Reader, writer io.Writer, receiver Model) Connection {
@@ -476,11 +480,29 @@ func (c *rawConnection) pingerLoop() {
 	for {
 		select {
 		case <-ticker:
+			if d := time.Since(c.xr.LastRead()); d < pingIdleTime {
+				if debug {
+					l.Debugln(c.id, "ping skipped after rd", d)
+				}
+				continue
+			}
+			if d := time.Since(c.xw.LastWrite()); d < pingIdleTime {
+				if debug {
+					l.Debugln(c.id, "ping skipped after wr", d)
+				}
+				continue
+			}
 			go func() {
+				if debug {
+					l.Debugln(c.id, "ping ->")
+				}
 				rc <- c.ping()
 			}()
 			select {
 			case ok := <-rc:
+				if debug {
+					l.Debugln(c.id, "<- pong")
+				}
 				if !ok {
 					c.close(fmt.Errorf("ping failure"))
 				}
@@ -505,15 +527,15 @@ func (c *rawConnection) processRequest(msgID int, req RequestMessage) {
 
 type Statistics struct {
 	At            time.Time
-	InBytesTotal  int
-	OutBytesTotal int
+	InBytesTotal  uint64
+	OutBytesTotal uint64
 }
 
 func (c *rawConnection) Statistics() Statistics {
 	return Statistics{
 		At:            time.Now(),
-		InBytesTotal:  int(c.cr.Tot()),
-		OutBytesTotal: int(c.cw.Tot()),
+		InBytesTotal:  c.cr.Tot(),
+		OutBytesTotal: c.cw.Tot(),
 	}
 }
 
