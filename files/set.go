@@ -57,6 +57,9 @@ func (m *Set) Replace(id uint, fs []scanner.File) {
 	m.Lock()
 	if len(fs) == 0 || !m.equals(id, fs) {
 		m.changes[id]++
+		if err := m.db.replace(id, fs); err != nil {
+			l.Fatalln(err)
+		}
 		m.replace(id, fs)
 	}
 	m.Unlock()
@@ -99,6 +102,9 @@ func (m *Set) ReplaceWithDelete(id uint, fs []scanner.File) {
 			}
 		}
 
+		if err := m.db.updateWithDelete(id, fs); err != nil {
+			l.Fatalln(err)
+		}
 		m.replace(id, fs)
 	}
 	m.Unlock()
@@ -234,10 +240,6 @@ func (m *Set) update(cid uint, fs []scanner.File) {
 		}
 
 		remFiles[n] = fk
-		err := m.db.updateFile(cid, f)
-		if err != nil {
-			l.Fatalln(err)
-		}
 
 		// Keep the block list or increment the usage
 		if br, ok := m.files[fk]; !ok {

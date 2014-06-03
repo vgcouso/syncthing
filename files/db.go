@@ -7,6 +7,7 @@ package files
 import (
 	"database/sql"
 
+	"github.com/calmh/syncthing/protocol"
 	"github.com/calmh/syncthing/scanner"
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -25,7 +26,9 @@ var schema = []string{
 		Flags INTEGER NOT NULL,
 		Modified INTEGER NOT NULL,
 		Version INTEGER NOT NULL,
-		Suppressed INTEGER NOT NULL
+		Suppressed BOOLEAN NOT NULL,
+		Deleted BOOLEAN NOT NULL,
+		Updated BOOLEAN NOT NULL
 	)`,
 	`CREATE UNIQUE INDEX IF NOT EXISTS NodeRepoNameIdx ON File (Node, Repo, Name)`,
 	`CREATE TABLE IF NOT EXISTS Block (
@@ -98,7 +101,7 @@ func newFileDB(repo, name string) (*fileDB, error) {
 		return nil, err
 	}
 
-	fdb.insertFile, err = db.Prepare("INSERT INTO File (Node, Repo, Name, Flags, Modified, Version, Suppressed) VALUES (?, ?, ?, ?, ?, ?, ?)")
+	fdb.insertFile, err = db.Prepare("INSERT INTO File (Node, Repo, Name, Flags, Modified, Version, Suppressed, Deleted, Updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)")
 	if err != nil {
 		return nil, err
 	}
@@ -111,56 +114,110 @@ func newFileDB(repo, name string) (*fileDB, error) {
 	return &fdb, nil
 }
 
-func (db *fileDB) updateFile(cid uint, f scanner.File) error {
-	var id int64
-	var version uint64
-	var tx *sql.Tx
-
-	row := db.selectFileID.QueryRow(cid, db.repo, f.Name)
-	err := row.Scan(&id, &version)
-	if err == nil && version != f.Version {
-		tx, err = db.db.Begin()
-		if err != nil {
-			return err
-		}
-
-		_, err = tx.Stmt(db.deleteFile).Exec(id)
-		if err != nil {
-			return err
-		}
-		/*
-			_, err = tx.Stmt(db.deleteBlock).Exec(id)
-			if err != nil {
-				return err
-			}*/
-	} else if err != sql.ErrNoRows {
-		return err
+func (db *fileDB) updateWithDelete(cid uint, fs []scanner.File) error {
+	tx, err := db.db.Begin()
+	if err != nil {
+		l.Fatalln(err)
 	}
 
-	if version != f.Version {
-		if tx == nil {
-			tx, err = db.db.Begin()
+	_, err = tx.Exec("UPDATE File SET Updated==0 WHERE Node==? AND Repo==?", cid, db.repo)
+	if err != nil {
+		l.Fatalln(err)
+	}
+
+	for _, f := range fs {
+		var id int64
+		var version uint64
+
+		row := tx.Stmt(db.selectFileID).QueryRow(cid, db.repo, f.Name)
+		err := row.Scan(&id, &version)
+
+		if err == nil && version != f.Version {
+			_, err = tx.Stmt(db.deleteFile).Exec(id)
 			if err != nil {
-				return err
+				l.Fatalln(err)
 			}
+		} else if err != nil && err != sql.ErrNoRows {
+			l.Fatalln(err)
 		}
 
-		rs, err := tx.Stmt(db.insertFile).Exec(cid, db.repo, f.Name, f.Flags, f.Modified, f.Version, f.Suppressed)
-		if err != nil {
-			return err
-		}
-		id, _ = rs.LastInsertId()
-
-		for _, b := range f.Blocks {
-			_, err = tx.Stmt(db.insertBlock).Exec(b.Hash, id, b.Size, b.Offset)
+		if version != f.Version {
+			rs, err := tx.Stmt(db.insertFile).Exec(cid, db.repo, f.Name, f.Flags, f.Modified, f.Version, f.Suppressed, protocol.IsDeleted(f.Flags))
 			if err != nil {
-				return err
+				l.Fatalln(err)
+			}
+			id, _ = rs.LastInsertId()
+
+			for _, b := range f.Blocks {
+				_, err = tx.Stmt(db.insertBlock).Exec(b.Hash, id, b.Size, b.Offset)
+				if err != nil {
+					l.Fatalln(err)
+				}
 			}
 		}
 	}
 
-	if tx != nil {
-		return tx.Commit()
+	rs, err := tx.Exec("DELETE FROM File WHERE Repo==? AND Node==? AND Updated==0", db.repo, cid)
+	if err != nil {
+		l.Fatalln(err)
 	}
-	return nil
+
+	aff, _ := rs.RowsAffected()
+	l.Infoln("Deleted", aff)
+
+	return tx.Commit()
+}
+
+func (db *fileDB) replace(cid uint, fs []scanner.File) error {
+	tx, err := db.db.Begin()
+	if err != nil {
+		l.Fatalln(err)
+	}
+
+	_, err = tx.Exec("UPDATE File SET Updated==0 WHERE Node==? AND Repo==?", cid, db.repo)
+	if err != nil {
+		l.Fatalln(err)
+	}
+
+	for _, f := range fs {
+		var id int64
+		var version uint64
+
+		row := tx.Stmt(db.selectFileID).QueryRow(cid, db.repo, f.Name)
+		err := row.Scan(&id, &version)
+
+		if err == nil && version != f.Version {
+			_, err = tx.Stmt(db.deleteFile).Exec(id)
+			if err != nil {
+				l.Fatalln(err)
+			}
+		} else if err != nil && err != sql.ErrNoRows {
+			l.Fatalln(err)
+		}
+
+		if version != f.Version {
+			rs, err := tx.Stmt(db.insertFile).Exec(cid, db.repo, f.Name, f.Flags, f.Modified, f.Version, f.Suppressed, protocol.IsDeleted(f.Flags))
+			if err != nil {
+				l.Fatalln(err)
+			}
+			id, _ = rs.LastInsertId()
+
+			for _, b := range f.Blocks {
+				_, err = tx.Stmt(db.insertBlock).Exec(b.Hash, id, b.Size, b.Offset)
+				if err != nil {
+					l.Fatalln(err)
+				}
+			}
+		}
+	}
+
+	rs, err := tx.Exec("DELETE FROM File WHERE Repo==? AND Node==? AND Updated==0", db.repo, cid)
+	if err != nil {
+		l.Fatalln(err)
+	}
+
+	aff, _ := rs.RowsAffected()
+	l.Infoln("Deleted", aff)
+
+	return tx.Commit()
 }
