@@ -6,14 +6,26 @@
 package files
 
 import (
+	"bytes"
 	"sync"
 
 	"github.com/calmh/syncthing/cid"
 	"github.com/calmh/syncthing/lamport"
 	"github.com/calmh/syncthing/protocol"
 	"github.com/calmh/syncthing/scanner"
+	"github.com/calmh/syncthing/xdr"
 	"github.com/cznic/kv"
 )
+
+var db *kv.DB
+
+func init() {
+	var err error
+	db, err = kv.CreateTemp("/tmp", "foo", "db", &kv.Options{})
+	if err != nil {
+		panic(err)
+	}
+}
 
 type fileRecord struct {
 	File   scanner.File
@@ -25,28 +37,31 @@ type bitset uint64
 
 type Set struct {
 	sync.Mutex
-	files              *kv.DB
+	repo               string
 	remoteKey          [64]map[string]key
 	changes            [64]uint64
 	globalAvailability map[string]bitset
 	globalKey          map[string]key
 }
 
-func NewSet() *Set {
-	db, err := kv.CreateTemp("/tmp", "foo", "db", &kv.Options{})
-	if err != nil {
-		panic(err)
-	}
+func NewSet(repo string) *Set {
 	var m = Set{
-		files:              db,
+		repo:               repo,
 		globalAvailability: make(map[string]bitset),
 		globalKey:          make(map[string]key),
 	}
 	return &m
 }
 
+func (m *Set) dbKey(k key) []byte {
+	var kb bytes.Buffer
+	xdr.NewWriter(&kb).WriteString(m.repo)
+	k.EncodeXDR(&kb)
+	return kb.Bytes()
+}
+
 func (m *Set) setFile(k key, r fileRecord) {
-	kbs := k.MarshalXDR()
+	kbs := m.dbKey(k)
 	rbs := r.File.MarshalXDR()
 	var t [3]byte
 	if r.Global {
@@ -57,7 +72,8 @@ func (m *Set) setFile(k key, r fileRecord) {
 	t[1] = byte(r.Usage >> 8)
 	t[2] = byte(r.Usage)
 	rbs = append(rbs, t[:]...)
-	m.files.Set(kbs, rbs)
+	l.Debugf("%x", kbs)
+	db.Set(kbs, rbs)
 }
 
 func (m *Set) getFile(k key) fileRecord {
@@ -66,8 +82,9 @@ func (m *Set) getFile(k key) fileRecord {
 }
 
 func (m *Set) getFileOK(k key) (fileRecord, bool) {
-	kbs := k.MarshalXDR()
-	rbs, err := m.files.Get(nil, kbs)
+	kbs := m.dbKey(k)
+	l.Debugf("%x", kbs)
+	rbs, err := db.Get(nil, kbs)
 	if err != nil || len(rbs) == 0 {
 		return fileRecord{}, false
 	}
@@ -87,7 +104,7 @@ func frBytes(rbs []byte) fileRecord {
 }
 
 func (m *Set) forEachFile(fn func(key, fileRecord)) {
-	it, err := m.files.SeekFirst()
+	it, _, err := db.Seek(m.dbKey(key{}))
 	if err != nil {
 		return
 	}
@@ -96,16 +113,24 @@ func (m *Set) forEachFile(fn func(key, fileRecord)) {
 		if err != nil {
 			break
 		}
+
+		kb := bytes.NewBuffer(kbs)
+		if repo := xdr.NewReader(kb).ReadString(); repo != m.repo {
+			break
+		}
+
 		var k key
-		k.UnmarshalXDR(kbs)
+		k.DecodeXDR(kb)
+
 		r := frBytes(rbs)
 		fn(k, r)
 	}
 }
 
 func (m *Set) deleteFile(k key) {
-	kbs := k.MarshalXDR()
-	m.files.Delete(kbs)
+	kbs := m.dbKey(k)
+	l.Debugf("%x", kbs)
+	db.Delete(kbs)
 }
 
 func (m *Set) Replace(id uint, fs []scanner.File) {

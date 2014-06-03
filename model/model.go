@@ -610,7 +610,7 @@ func (m *Model) AddRepo(cfg config.RepositoryConfiguration) {
 
 	m.rmut.Lock()
 	m.repoCfgs[cfg.ID] = cfg
-	m.repoFiles[cfg.ID] = files.NewSet()
+	m.repoFiles[cfg.ID] = files.NewSet(cfg.ID)
 	m.suppressor[cfg.ID] = &suppressor{threshold: int64(m.cfg.Options.MaxChangeKbps)}
 
 	m.repoNodes[cfg.ID] = make([]string, len(cfg.Nodes))
