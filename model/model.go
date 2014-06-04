@@ -41,12 +41,19 @@ const (
 // transfer to bring the systems into synchronization.
 const zeroEntrySize = 128
 
+type version struct {
+	latest uint64
+	have   uint64
+}
+
 type Model struct {
 	indexDir string
 	cfg      *config.Configuration
 
 	clientName    string
 	clientVersion string
+
+	versions map[string]version // repo/file -> {latest, have}
 
 	repoCfgs   map[string]config.RepositoryConfiguration // repo -> cfg
 	repoFiles  map[string]*files.Set                     // repo -> files

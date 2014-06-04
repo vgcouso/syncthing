@@ -6,14 +6,12 @@
 package files
 
 import (
-	"bytes"
 	"sync"
 
 	"github.com/calmh/syncthing/cid"
 	"github.com/calmh/syncthing/lamport"
 	"github.com/calmh/syncthing/protocol"
 	"github.com/calmh/syncthing/scanner"
-	"github.com/calmh/syncthing/xdr"
 	"github.com/cznic/kv"
 )
 
@@ -51,86 +49,6 @@ func NewSet(repo string) *Set {
 		globalKey:          make(map[string]key),
 	}
 	return &m
-}
-
-func (m *Set) dbKey(k key) []byte {
-	var kb bytes.Buffer
-	xdr.NewWriter(&kb).WriteString(m.repo)
-	k.EncodeXDR(&kb)
-	return kb.Bytes()
-}
-
-func (m *Set) setFile(k key, r fileRecord) {
-	kbs := m.dbKey(k)
-	rbs := r.File.MarshalXDR()
-	var t [3]byte
-	if r.Global {
-		t[0] = 1
-	} else {
-		t[0] = 0
-	}
-	t[1] = byte(r.Usage >> 8)
-	t[2] = byte(r.Usage)
-	rbs = append(rbs, t[:]...)
-	l.Debugf("%x", kbs)
-	db.Set(kbs, rbs)
-}
-
-func (m *Set) getFile(k key) fileRecord {
-	r, _ := m.getFileOK(k)
-	return r
-}
-
-func (m *Set) getFileOK(k key) (fileRecord, bool) {
-	kbs := m.dbKey(k)
-	l.Debugf("%x", kbs)
-	rbs, err := db.Get(nil, kbs)
-	if err != nil || len(rbs) == 0 {
-		return fileRecord{}, false
-	}
-	return frBytes(rbs), true
-}
-
-func frBytes(rbs []byte) fileRecord {
-	var f scanner.File
-	f.UnmarshalXDR(rbs)
-	isGlobal := rbs[len(rbs)-3] != 0
-	usage := int(rbs[len(rbs)-2])<<8 + int(rbs[len(rbs)-1])
-	return fileRecord{
-		File:   f,
-		Global: isGlobal,
-		Usage:  usage,
-	}
-}
-
-func (m *Set) forEachFile(fn func(key, fileRecord)) {
-	it, _, err := db.Seek(m.dbKey(key{}))
-	if err != nil {
-		return
-	}
-	for {
-		kbs, rbs, err := it.Next()
-		if err != nil {
-			break
-		}
-
-		kb := bytes.NewBuffer(kbs)
-		if repo := xdr.NewReader(kb).ReadString(); repo != m.repo {
-			break
-		}
-
-		var k key
-		k.DecodeXDR(kb)
-
-		r := frBytes(rbs)
-		fn(k, r)
-	}
-}
-
-func (m *Set) deleteFile(k key) {
-	kbs := m.dbKey(k)
-	l.Debugf("%x", kbs)
-	db.Delete(kbs)
 }
 
 func (m *Set) Replace(id uint, fs []scanner.File) {
@@ -213,7 +131,11 @@ func (m *Set) Need(id uint) []scanner.File {
 			return
 		}
 		if gk.newerThan(rkID[gk.Name]) {
-			fs = append(fs, gf.File)
+			f := gf.File
+			if len(f.Name) == 0 {
+				l.Fatalln("blank name in Need()")
+			}
+			fs = append(fs, f)
 		}
 	})
 	m.Unlock()
@@ -227,7 +149,11 @@ func (m *Set) Have(id uint) []scanner.File {
 	var fs = make([]scanner.File, 0, len(m.remoteKey[id]))
 	m.Lock()
 	for _, rk := range m.remoteKey[id] {
-		fs = append(fs, m.getFile(rk).File)
+		f := m.getFile(rk).File
+		if len(f.Name) == 0 {
+			l.Fatalln("blank name in Have()")
+		}
+		fs = append(fs, f)
 	}
 	m.Unlock()
 	return fs
@@ -241,7 +167,11 @@ func (m *Set) Global() []scanner.File {
 	var fs = make([]scanner.File, 0, len(m.globalKey))
 	m.forEachFile(func(_ key, file fileRecord) {
 		if file.Global {
-			fs = append(fs, file.File)
+			f := file.File
+			if len(f.Name) == 0 {
+				l.Fatalln("blank name in Global()")
+			}
+			fs = append(fs, f)
 		}
 	})
 	m.Unlock()
