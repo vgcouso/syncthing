@@ -116,6 +116,7 @@ func (m *Set) Update(id uint, fs []scanner.File) {
 	}
 	m.Lock()
 	m.update(id, fs)
+	m.db.update(id, fs)
 	m.changes[id]++
 	m.Unlock()
 }
@@ -144,13 +145,7 @@ func (m *Set) Have(id uint) []scanner.File {
 	if debug {
 		l.Debugf("Have(%d)", id)
 	}
-	var fs = make([]scanner.File, 0, len(m.remoteKey[id]))
-	m.Lock()
-	for _, rk := range m.remoteKey[id] {
-		fs = append(fs, m.files[rk].File)
-	}
-	m.Unlock()
-	return fs
+	return m.db.have(id)
 }
 
 func (m *Set) Global() []scanner.File {

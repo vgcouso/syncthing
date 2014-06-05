@@ -6,6 +6,7 @@ package files_test
 
 import (
 	"fmt"
+	"os"
 	"reflect"
 	"sort"
 	"testing"
@@ -31,47 +32,62 @@ func (l fileList) Swap(a, b int) {
 	l[a], l[b] = l[b], l[a]
 }
 
+func genBlocks(n int) []scanner.Block {
+	b := make([]scanner.Block, n)
+	for i := range b {
+		h := make([]byte, 32)
+		for j := range h {
+			h[j] = byte(i + j)
+		}
+		b[i].Size = uint32(i)
+		b[i].Offset = int64(i)
+		b[i].Hash = h
+	}
+	return b
+}
+
 func TestGlobalSet(t *testing.T) {
-	m := files.NewSet()
+	os.RemoveAll("testdata/testdb")
+	m := files.NewSet("repo", "testdata/testdb")
 
 	local := []scanner.File{
-		scanner.File{Name: "a", Version: 1000},
-		scanner.File{Name: "b", Version: 1000},
-		scanner.File{Name: "c", Version: 1000},
-		scanner.File{Name: "d", Version: 1000},
+		scanner.File{Name: "a", Version: 1000, Blocks: genBlocks(1)},
+		scanner.File{Name: "b", Version: 1000, Blocks: genBlocks(2)},
+		scanner.File{Name: "c", Version: 1000, Blocks: genBlocks(3)},
+		scanner.File{Name: "d", Version: 1000, Blocks: genBlocks(4)},
 	}
 
 	remote0 := []scanner.File{
-		scanner.File{Name: "a", Version: 1000},
-		scanner.File{Name: "c", Version: 1002},
+		scanner.File{Name: "a", Version: 1000, Blocks: genBlocks(1)},
+		scanner.File{Name: "c", Version: 1002, Blocks: genBlocks(5)},
 	}
 	remote1 := []scanner.File{
-		scanner.File{Name: "b", Version: 1001},
-		scanner.File{Name: "e", Version: 1000},
+		scanner.File{Name: "b", Version: 1001, Blocks: genBlocks(6)},
+		scanner.File{Name: "e", Version: 1000, Blocks: genBlocks(7)},
 	}
 	remoteTot := []scanner.File{
-		scanner.File{Name: "a", Version: 1000},
-		scanner.File{Name: "b", Version: 1001},
-		scanner.File{Name: "c", Version: 1002},
-		scanner.File{Name: "e", Version: 1000},
+		remote0[0],
+		remote1[0],
+		remote0[1],
+		remote1[1],
 	}
 
 	expectedGlobal := []scanner.File{
-		scanner.File{Name: "a", Version: 1000},
-		scanner.File{Name: "b", Version: 1001},
-		scanner.File{Name: "c", Version: 1002},
-		scanner.File{Name: "d", Version: 1000},
-		scanner.File{Name: "e", Version: 1000},
+		scanner.File{Name: "a", Version: 1000, Blocks: genBlocks(1)},
+		scanner.File{Name: "b", Version: 1001, Blocks: genBlocks(6)},
+		scanner.File{Name: "c", Version: 1002, Blocks: genBlocks(5)},
+		scanner.File{Name: "d", Version: 1000, Blocks: genBlocks(4)},
+		scanner.File{Name: "e", Version: 1000, Blocks: genBlocks(7)},
 	}
 
 	expectedLocalNeed := []scanner.File{
-		scanner.File{Name: "b", Version: 1001},
-		scanner.File{Name: "c", Version: 1002},
-		scanner.File{Name: "e", Version: 1000},
+		scanner.File{Name: "b", Version: 1001, Blocks: genBlocks(6)},
+		scanner.File{Name: "c", Version: 1002, Blocks: genBlocks(5)},
+		scanner.File{Name: "e", Version: 1000, Blocks: genBlocks(7)},
 	}
 
 	expectedRemoteNeed := []scanner.File{
-		scanner.File{Name: "d", Version: 1000},
+		scanner.File{Name: "d", Version: 1000, Blocks: genBlocks(4)},
 	}
 
 	m.ReplaceWithDelete(cid.LocalID, local)
@@ -143,7 +159,8 @@ func TestGlobalSet(t *testing.T) {
 }
 
 func TestLocalDeleted(t *testing.T) {
-	m := files.NewSet()
+	os.RemoveAll("testdata/testdb")
+	m := files.NewSet("repo", "testdata/testdb")
 	lamport.Default = lamport.Clock{}
 
 	local1 := []scanner.File{
@@ -221,7 +238,7 @@ func Benchmark10kReplace(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		m := files.NewSet()
+		m := files.NewSet("repo", "testdata/testdb")
 		m.ReplaceWithDelete(cid.LocalID, local)
 	}
 }
@@ -232,7 +249,7 @@ func Benchmark10kUpdateChg(b *testing.B) {
 		remote = append(remote, scanner.File{Name: fmt.Sprintf("file%d", i), Version: 1000})
 	}
 
-	m := files.NewSet()
+	m := files.NewSet("repo", "testdata/testdb")
 	m.Replace(1, remote)
 
 	var local []scanner.File
@@ -259,7 +276,7 @@ func Benchmark10kUpdateSme(b *testing.B) {
 		remote = append(remote, scanner.File{Name: fmt.Sprintf("file%d", i), Version: 1000})
 	}
 
-	m := files.NewSet()
+	m := files.NewSet("repo", "testdata/testdb")
 	m.Replace(1, remote)
 
 	var local []scanner.File
@@ -281,7 +298,7 @@ func Benchmark10kNeed2k(b *testing.B) {
 		remote = append(remote, scanner.File{Name: fmt.Sprintf("file%d", i), Version: 1000})
 	}
 
-	m := files.NewSet()
+	m := files.NewSet("repo", "testdata/testdb")
 	m.Replace(cid.LocalID+1, remote)
 
 	var local []scanner.File
@@ -309,7 +326,7 @@ func Benchmark10kHave(b *testing.B) {
 		remote = append(remote, scanner.File{Name: fmt.Sprintf("file%d", i), Version: 1000})
 	}
 
-	m := files.NewSet()
+	m := files.NewSet("repo", "testdata/testdb")
 	m.Replace(cid.LocalID+1, remote)
 
 	var local []scanner.File
@@ -337,7 +354,7 @@ func Benchmark10kGlobal(b *testing.B) {
 		remote = append(remote, scanner.File{Name: fmt.Sprintf("file%d", i), Version: 1000})
 	}
 
-	m := files.NewSet()
+	m := files.NewSet("repo", "testdata/testdb")
 	m.Replace(cid.LocalID+1, remote)
 
 	var local []scanner.File
@@ -360,7 +377,8 @@ func Benchmark10kGlobal(b *testing.B) {
 }
 
 func TestGlobalReset(t *testing.T) {
-	m := files.NewSet()
+	os.RemoveAll("testdata/testdb")
+	m := files.NewSet("repo", "testdata/testdb")
 
 	local := []scanner.File{
 		scanner.File{Name: "a", Version: 1000},
@@ -396,7 +414,8 @@ func TestGlobalReset(t *testing.T) {
 }
 
 func TestNeed(t *testing.T) {
-	m := files.NewSet()
+	os.RemoveAll("testdata/testdb")
+	m := files.NewSet("repo", "testdata/testdb")
 
 	local := []scanner.File{
 		scanner.File{Name: "a", Version: 1000},
@@ -432,7 +451,8 @@ func TestNeed(t *testing.T) {
 }
 
 func TestChanges(t *testing.T) {
-	m := files.NewSet()
+	os.RemoveAll("testdata/testdb")
+	m := files.NewSet("repo", "testdata/testdb")
 
 	local1 := []scanner.File{
 		scanner.File{Name: "a", Version: 1000},
