@@ -9,8 +9,7 @@ import (
 )
 
 type kvdb struct {
-	db   *kv.DB
-	repo string
+	db *kv.DB
 }
 
 type kvkey struct {
