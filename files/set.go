@@ -7,6 +7,7 @@ package files
 
 import (
 	"sync"
+
 	"github.com/calmh/syncthing/scanner"
 	"github.com/cznic/kv"
 )
@@ -36,9 +37,7 @@ type Set struct {
 
 func NewSet(repo string) *Set {
 	var m = Set{
-		repo:               repo,
-		globalAvailability: make(map[string]bitset),
-		globalKey:          make(map[string]key),
+		repo: repo,
 	}
 	return &m
 }
