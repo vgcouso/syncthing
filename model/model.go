@@ -279,8 +279,7 @@ func (m *Model) Index(nodeID string, repo string, fs []protocol.FileInfo) {
 	if r, ok := m.repoFiles[repo]; ok {
 		r.Replace(id, files)
 	} else {
-		l.Warnf("Index from %s for unexpected repo %q; verify configuration", nodeID, repo)
-
+		l.Warnf("Unexpected repository ID %q sent from node %q; ensure that the repository exists and that this node is selected under \"Share With\" in the repository configuration.", repo, nodeID)
 	}
 	m.rmut.RUnlock()
 }
@@ -573,7 +572,7 @@ func (m *Model) broadcastIndexLoop() {
 			go func() {
 				err := m.saveIndex(repo, m.indexDir, idx)
 				if err != nil {
-					l.Warnln("Saving index for %q: %v", repo, err)
+					l.Infof("Saving index for %q: %v", repo, err)
 				}
 				indexWg.Done()
 			}()
@@ -697,7 +696,7 @@ func (m *Model) SaveIndexes(dir string) {
 		fs := m.protocolIndex(repo)
 		err := m.saveIndex(repo, dir, fs)
 		if err != nil {
-			l.Warnf("Saving index for %q: %v", repo, err)
+			l.Infof("Saving index for %q: %v", repo, err)
 		}
 	}
 	m.rmut.RUnlock()
@@ -716,11 +715,12 @@ func (m *Model) saveIndex(repo string, dir string, fs []protocol.FileInfo) error
 	id := fmt.Sprintf("%x", sha1.Sum([]byte(m.repoCfgs[repo].Directory)))
 	name := id + ".idx.gz"
 	name = filepath.Join(dir, name)
-
-	idxf, err := os.Create(name + ".tmp")
+	tmp := fmt.Sprintf("%s.tmp.%d", name, time.Now().UnixNano())
+	idxf, err := os.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
 	}
+	defer os.Remove(tmp)
 
 	gzw := gzip.NewWriter(idxf)
 
@@ -748,7 +748,7 @@ func (m *Model) saveIndex(repo string, dir string, fs []protocol.FileInfo) error
 		l.Debugln("wrote index,", n, "bytes uncompressed")
 	}
 
-	return osutil.Rename(name+".tmp", name)
+	return osutil.Rename(tmp, name)
 }
 
 func (m *Model) loadIndex(repo string, dir string) []protocol.FileInfo {
