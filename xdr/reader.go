@@ -71,7 +71,9 @@ func (r *Reader) ReadBytesMaxInto(max int, dst []byte) []byte {
 	var n int
 	n, r.err = io.ReadFull(r.r, dst)
 	if r.err != nil {
-		dl.Debugf("@0x%x: rd bytes (%d): %v", s, len(dst), r.err)
+		if debug {
+			dl.Debugf("@0x%x: rd bytes (%d): %v", s, len(dst), r.err)
+		}
 		return nil
 	}
 	r.tot += n
@@ -110,7 +112,9 @@ func (r *Reader) ReadUint16() uint16 {
 	n, r.err = io.ReadFull(r.r, r.b[:4])
 	r.tot += n
 	if r.err != nil {
-		dl.Debugf("@0x%x: rd uint16:", r.tot, r.err)
+		if debug {
+			dl.Debugf("@0x%x: rd uint16: %v", r.tot, r.err)
+		}
 		return 0
 	}
 
@@ -133,7 +137,9 @@ func (r *Reader) ReadUint32() uint32 {
 	n, r.err = io.ReadFull(r.r, r.b[:4])
 	r.tot += n
 	if r.err != nil {
-		dl.Debugf("@0x%x: rd uint32:", r.tot, r.err)
+		if debug {
+			dl.Debugf("@0x%x: rd uint32: %v", r.tot, r.err)
+		}
 		return 0
 	}
 
@@ -156,7 +162,9 @@ func (r *Reader) ReadUint64() uint64 {
 	n, r.err = io.ReadFull(r.r, r.b[:8])
 	r.tot += n
 	if r.err != nil {
-		dl.Debugf("@0x%x: rd uint64:", r.tot, r.err)
+		if debug {
+			dl.Debugf("@0x%x: rd uint64: %v", r.tot, r.err)
+		}
 		return 0
 	}
 

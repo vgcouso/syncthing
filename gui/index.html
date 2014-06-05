@@ -408,9 +408,7 @@ found in the LICENSE file.
           </h4>
         </div>
         <div class="modal-body">
-          <div class="well well-sm text-monospace text-center">
-            {{myID | chunkID}}
-          </div>
+          <div class="well well-sm text-monospace text-center">{{myID | chunkID}}</div>
           <img ng-if="myID" class="center-block img-thumbnail" src="qr/{{myID | chunkID}}"/>
         </div>
         <div class="modal-footer">
@@ -516,7 +514,7 @@ found in the LICENSE file.
                   <p class="help-block">File permission bits are ignored when looking for changes. Use on FAT filesystems.</p>
                 </div>
                 <div class="form-group">
-                  <label for="nodes">Nodes</label>
+                  <label for="nodes">Share With Nodes</label>
                   <div class="checkbox" ng-repeat="node in otherNodes()">
                     <label>
                       <input type="checkbox" ng-model="currentRepo.selectedNodes[node.NodeID]"> {{nodeName(node)}}
@@ -594,6 +592,11 @@ found in the LICENSE file.
                     <label>
                       {{setting.descr}} <input id="{{setting.id}}" type="checkbox" ng-model="config.workingGUI[setting.id]"></input>
                     </label>
+                  </div>
+                  <div ng-if="setting.type == 'apikey'">
+                    <label>{{setting.descr}} (<a href="http://discourse.syncthing.net/t/v0-8-14-api-keys/335">Usage</a>)</label>
+                    <div class="well well-sm text-monospace">{{config.workingGUI[setting.id] || "-"}}</div>
+                    <button type="button" class="btn btn-sm btn-default" ng-click="setAPIKey(config.workingGUI)">Generate</button>
                   </div>
                 </div>
               </div>

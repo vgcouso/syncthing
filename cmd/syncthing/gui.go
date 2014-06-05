@@ -40,6 +40,7 @@ var (
 	guiErrors    = []guiError{}
 	guiErrorsMut sync.Mutex
 	static       func(http.ResponseWriter, *http.Request, *log.Logger)
+	apiKey       string
 )
 
 const (
@@ -105,6 +106,7 @@ func startGUI(cfg config.GUIConfiguration, assetDir string, m *model.Model) erro
 	router.Post("/rest/discovery/hint", restPostDiscoveryHint)
 
 	mr := martini.New()
+	mr.Use(csrfMiddleware)
 	if len(cfg.User) > 0 && len(cfg.Password) > 0 {
 		mr.Use(basic(cfg.User, cfg.Password))
 	}
@@ -113,6 +115,9 @@ func startGUI(cfg config.GUIConfiguration, assetDir string, m *model.Model) erro
 	mr.Use(restMiddleware)
 	mr.Action(router.Handle)
 	mr.Map(m)
+
+	apiKey = cfg.APIKey
+	loadCsrfTokens()
 
 	go http.Serve(listener, mr)
 
@@ -318,6 +323,10 @@ func getQR(w http.ResponseWriter, params martini.Params) {
 
 func basic(username string, passhash string) http.HandlerFunc {
 	return func(res http.ResponseWriter, req *http.Request) {
+		if validAPIKey(req.Header.Get("X-API-Key")) {
+			return
+		}
+
 		error := func() {
 			time.Sleep(time.Duration(rand.Intn(100)+100) * time.Millisecond)
 			res.Header().Set("WWW-Authenticate", "Basic realm=\"Authorization Required\"")
@@ -353,6 +362,10 @@ func basic(username string, passhash string) http.HandlerFunc {
 			return
 		}
 	}
+}
+
+func validAPIKey(k string) bool {
+	return len(apiKey) > 0 && k == apiKey
 }
 
 func embeddedStatic() func(http.ResponseWriter, *http.Request, *log.Logger) {
