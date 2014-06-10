@@ -112,6 +112,12 @@ func TestGlobalSet(t *testing.T) {
 	sort.Sort(fileList(h))
 
 	if !reflect.DeepEqual(h, remoteTot) {
+		t.Log("---")
+		for i := range h {
+			t.Logf("%#v", h[i].Blocks)
+			t.Logf("%#v", remoteTot[i].Blocks)
+			t.Log("---")
+		}
 		t.Errorf("Have incorrect;\n A: %v !=\n E: %v", h, remoteTot)
 	}
 
