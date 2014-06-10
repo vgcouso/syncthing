@@ -70,4 +70,5 @@ func (m *Set) Availability(name string) bitset {
 }
 
 func (m *Set) Changes(id uint) uint64 {
+
 }

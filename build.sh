@@ -31,6 +31,21 @@ assets() {
 	godep go run cmd/assets/assets.go gui > auto/gui.files.go
 }
 
+test-cov() {
+	echo "mode: set" > coverage.out
+	fail=0
+
+	for dir in $(go list ./...) ; do
+		godep go test -coverprofile=profile.out $dir || fail=1
+		if [ -f profile.out ] ; then
+			grep -v "mode: set" profile.out >> coverage.out
+		rm profile.out
+        fi
+    done
+
+   exit $fail
+}
+
 test() {
 	check
 	godep go test -cpu=1,2,4 ./...
@@ -61,7 +76,8 @@ zipDist() {
 	rm -rf "$name"
 	mkdir -p "$name"
 	for f in "${distFiles[@]}" ; do
-		sed 's/$//' < "$f" > "$name/$f.txt"
+		sed 's/$/
+/' < "$f" > "$name/$f.txt"
 	done
 	cp syncthing.exe "$name"
 	sign "$name/syncthing.exe"
@@ -98,6 +114,10 @@ case "$1" in
 
 	test)
 		test
+		;;
+
+	test-cov)
+		test-cov
 		;;
 
 	tar)
