@@ -47,8 +47,8 @@ func genBlocks(n int) []scanner.Block {
 }
 
 func TestGlobalSet(t *testing.T) {
-	os.RemoveAll("testdata/testdb")
-	m := files.NewSet("repo", "testdata/testdb")
+	os.RemoveAll("testdata/testdb1")
+	m := files.NewSet("repo", "testdata/testdb1")
 
 	local := []scanner.File{
 		scanner.File{Name: "a", Version: 1000, Blocks: genBlocks(1)},
@@ -159,8 +159,8 @@ func TestGlobalSet(t *testing.T) {
 }
 
 func TestLocalDeleted(t *testing.T) {
-	os.RemoveAll("testdata/testdb")
-	m := files.NewSet("repo", "testdata/testdb")
+	os.RemoveAll("testdata/testdb2")
+	m := files.NewSet("repo", "testdata/testdb2")
 	lamport.Default = lamport.Clock{}
 
 	local1 := []scanner.File{
@@ -377,8 +377,8 @@ func Benchmark10kGlobal(b *testing.B) {
 }
 
 func TestGlobalReset(t *testing.T) {
-	os.RemoveAll("testdata/testdb")
-	m := files.NewSet("repo", "testdata/testdb")
+	os.RemoveAll("testdata/testdb3")
+	m := files.NewSet("repo", "testdata/testdb3")
 
 	local := []scanner.File{
 		scanner.File{Name: "a", Version: 1000},
@@ -414,8 +414,8 @@ func TestGlobalReset(t *testing.T) {
 }
 
 func TestNeed(t *testing.T) {
-	os.RemoveAll("testdata/testdb")
-	m := files.NewSet("repo", "testdata/testdb")
+	os.RemoveAll("testdata/testdb4")
+	m := files.NewSet("repo", "testdata/testdb4")
 
 	local := []scanner.File{
 		scanner.File{Name: "a", Version: 1000},
@@ -451,8 +451,8 @@ func TestNeed(t *testing.T) {
 }
 
 func TestChanges(t *testing.T) {
-	os.RemoveAll("testdata/testdb")
-	m := files.NewSet("repo", "testdata/testdb")
+	os.RemoveAll("testdata/testdb5")
+	m := files.NewSet("repo", "testdata/testdb5")
 
 	local1 := []scanner.File{
 		scanner.File{Name: "a", Version: 1000},

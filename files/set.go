@@ -152,15 +152,7 @@ func (m *Set) Global() []scanner.File {
 	if debug {
 		l.Debugf("Global()")
 	}
-	m.Lock()
-	var fs = make([]scanner.File, 0, len(m.globalKey))
-	for _, file := range m.files {
-		if file.Global {
-			fs = append(fs, file.File)
-		}
-	}
-	m.Unlock()
-	return fs
+	return m.db.global()
 }
 
 func (m *Set) Get(id uint, file string) scanner.File {
@@ -169,7 +161,7 @@ func (m *Set) Get(id uint, file string) scanner.File {
 	if debug {
 		l.Debugf("Get(%d, %q)", id, file)
 	}
-	return m.files[m.remoteKey[id][file]].File
+	return m.db.get(id, file)
 }
 
 func (m *Set) GetGlobal(file string) scanner.File {
