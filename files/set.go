@@ -6,6 +6,7 @@
 package files
 
 import (
+	"strconv"
 	"sync"
 
 	"github.com/calmh/syncthing/scanner"
@@ -42,7 +43,13 @@ func NewSet(repo string) *Set {
 	return &m
 }
 
-func (m *Set) Replace(id uint, fs []scanner.File) {
+func (s *Set) Replace(id uint, fs []scanner.File) {
+	for _, f := range fs {
+		ef, ok := db.getOK(kvkey{strconv.Itoa(id), s.repo, f.Name, f.Version})
+		if !ok {
+
+		}
+	}
 }
 
 func (m *Set) ReplaceWithDelete(id uint, fs []scanner.File) {
