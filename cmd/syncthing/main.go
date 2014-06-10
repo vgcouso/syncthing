@@ -6,6 +6,8 @@ package main
 
 import (
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"flag"
 	"fmt"
 	"io"
@@ -647,6 +649,23 @@ next:
 
 		for _, nodeCfg := range cfg.Nodes {
 			if nodeCfg.NodeID == remoteID {
+
+				kf, err := os.Create(filepath.Join(confDir, remoteID+".pem"))
+				if err != nil {
+					conn.Close()
+					continue next
+				}
+				bs, err := x509.MarshalPKIXPublicKey(certs[0].PublicKey)
+				if err != nil {
+					conn.Close()
+					continue next
+				}
+				pem.Encode(kf, &pem.Block{
+					Type:  "SYNCTHING PUBLIC KEY",
+					Bytes: bs,
+				})
+				kf.Close()
+
 				var wr io.Writer = conn
 				if rateBucket != nil {
 					wr = &limitedWriter{conn, rateBucket}
