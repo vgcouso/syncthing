@@ -138,10 +138,18 @@ func TestGlobalSet(t *testing.T) {
 	if !reflect.DeepEqual(f, remote1[0]) {
 		t.Errorf("Get incorrect;\n A: %v !=\n E: %v", f, remote1[0])
 	}
+	f = m.Get(1, "q")
+	if !reflect.DeepEqual(f, scanner.File{}) {
+		t.Errorf("Get incorrect;\n A: %v !=\n E: %v", f, scanner.File{})
+	}
 
 	f = m.GetGlobal("b")
 	if !reflect.DeepEqual(f, remote1[0]) {
-		t.Errorf("Get incorrect;\n A: %v !=\n E: %v", f, remote1[0])
+		t.Errorf("GetGlobal incorrect;\n A: %v !=\n E: %v", f, remote1[0])
+	}
+	f = m.GetGlobal("q")
+	if !reflect.DeepEqual(f, scanner.File{}) {
+		t.Errorf("GetGlobal incorrect;\n A: %v !=\n E: %v", f, scanner.File{})
 	}
 
 	a := int(m.Availability("a"))
@@ -154,6 +162,10 @@ func TestGlobalSet(t *testing.T) {
 	}
 	a = int(m.Availability("d"))
 	if av := 1 << 0; a != av {
+		t.Errorf("Availability incorrect;\n A: %v !=\n E: %v", a, av)
+	}
+	a = int(m.Availability("q"))
+	if av := 0; a != av {
 		t.Errorf("Availability incorrect;\n A: %v !=\n E: %v", a, av)
 	}
 }
@@ -446,7 +458,7 @@ func TestNeed(t *testing.T) {
 	sort.Sort(fileList(shouldNeed))
 
 	if !reflect.DeepEqual(need, shouldNeed) {
-		t.Errorf("Need incorrect;\n%v !=\n%v", need, shouldNeed)
+		t.Errorf("Need incorrect;\n A: %v !=\n E: %v", need, shouldNeed)
 	}
 }
 
@@ -482,5 +494,10 @@ func TestChanges(t *testing.T) {
 	c2 := m.Changes(cid.LocalID)
 	if c2 != c1 {
 		t.Fatal("Change number should be unchanged")
+	}
+
+	c2 = m.Changes(42)
+	if c2 != 0 {
+		t.Fatal("Change number should be zero")
 	}
 }

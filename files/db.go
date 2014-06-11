@@ -15,6 +15,7 @@ import (
 
 var setup = []string{
 	`PRAGMA journal_mode = OFF`,
+	`PRAGMA locking_mode = EXCLUSIVE`,
 	`PRAGMA journal_mode = WAL`,
 	`PRAGMA synchronous = NORMAL`,
 	`PRAGMA foreign_keys = ON`,
@@ -47,6 +48,8 @@ var schema = []string{
 var preparedStmts = [][2]string{
 	{"selectFileID", "SELECT ID, Version FROM File WHERE Node==? AND Repo==? AND Name==?"},
 	{"selectFileAll", "SELECT ID, Name, Flags, Modified, Version, Suppressed FROM File WHERE Node==? AND Repo==? AND Name==?"},
+	{"selectFileAllID", "SELECT ID, Name, Flags, Modified, Version, Suppressed FROM File WHERE ID==?"},
+	{"selectFileAllVersion", "SELECT ID, Name, Flags, Modified, Version, Suppressed FROM File WHERE Name==? AND Version==?"},
 	{"deleteFile", "DELETE FROM File WHERE ID==?"},
 	{"updateFile", "UPDATE File SET Updated=1 WHERE ID==?"},
 	{"deleteBlock", "DELETE FROM Block WHERE FileID==?"},
@@ -55,6 +58,11 @@ var preparedStmts = [][2]string{
 	{"selectBlock", "SELECT Hash, Size, Offs FROM Block WHERE FileID==?"},
 	{"selectFileHave", "SELECT ID, Name, Flags, Modified, Version, Suppressed FROM File WHERE Node==? AND Repo==?"},
 	{"selectFileGlobal", "SELECT ID, Name, Flags, Modified, MAX(Version), Suppressed FROM File WHERE Repo==? GROUP BY Name ORDER BY Name"},
+	{"selectMaxID", "SELECT MAX(ID) FROM File WHERE Node==? AND Repo==?"},
+	{"selectGlobalID", "SELECT MAX(ID) FROM File WHERE Repo==? AND Name==?"},
+	{"selectMaxVersion", "SELECT MAX(Version) FROM File WHERE Repo==? AND Name==?"},
+	{"selectWithVersion", "SELECT Node, Suppressed FROM File WHERE Repo==? AND Name==? AND Version==?"},
+	{"selectNeed", "SELECT Name, MAX(Version) Version FROM File WHERE Repo==? GROUP BY Name EXCEPT SELECT Name, Version FROM File WHERE Node==? AND Repo==?"},
 }
 
 type fileDB struct {
@@ -183,21 +191,23 @@ func (db *fileDB) updateWithDelete(cid uint, fs []scanner.File) error {
 
 	db.updateTx(cid, fs, tx)
 
-	rows, err := tx.Query("SELECT ID, Flags FROM File WHERE Repo==? AND Node==? AND Updated==0", db.repo, cid)
+	rows, err := tx.Query("SELECT ID, Flags, Version FROM File WHERE Repo==? AND Node==? AND Updated==0", db.repo, cid)
 	if err != nil && err != sql.ErrNoRows {
 		l.Fatalln(err)
 	}
 	for rows.Next() {
-		var id uint64
+		var id, version uint64
 		var flags uint32
-		err := rows.Scan(&id, &flags)
+		err := rows.Scan(&id, &flags, &version)
 		if err != nil {
 			l.Fatalln(err)
 		}
-		flags |= protocol.FlagDeleted
-		_, err = tx.Exec("UPDATE File SET Flags=?, Version=? WHERE ID==?", flags, lamport.Default.Tick(0), id)
-		if err != nil {
-			l.Fatalln(err)
+		if !protocol.IsDeleted(flags) {
+			flags |= protocol.FlagDeleted
+			_, err = tx.Exec("UPDATE File SET Flags=?, Version=? WHERE ID==?", flags, lamport.Default.Tick(version), id)
+			if err != nil {
+				l.Fatalln(err)
+			}
 		}
 	}
 
@@ -274,7 +284,10 @@ func (db *fileDB) have(cid uint) []scanner.File {
 	for rows.Next() {
 		var f scanner.File
 		var id int64
-		rows.Scan(&id, &f.Name, &f.Flags, &f.Modified, &f.Version, &f.Suppressed)
+		err = rows.Scan(&id, &f.Name, &f.Flags, &f.Modified, &f.Version, &f.Suppressed)
+		if err != nil {
+			l.Fatalln(err)
+		}
 
 		brows, err := db.stmts["selectBlock"].Query(id)
 		if err != nil && err != sql.ErrNoRows {
@@ -306,7 +319,53 @@ func (db *fileDB) global() []scanner.File {
 	for rows.Next() {
 		var f scanner.File
 		var id int64
-		rows.Scan(&id, &f.Name, &f.Flags, &f.Modified, &f.Version, &f.Suppressed)
+		err = rows.Scan(&id, &f.Name, &f.Flags, &f.Modified, &f.Version, &f.Suppressed)
+		if err != nil {
+			l.Fatalln(err)
+		}
+
+		brows, err := db.stmts["selectBlock"].Query(id)
+		if err != nil && err != sql.ErrNoRows {
+			l.Fatalln(err)
+		}
+
+		for brows.Next() {
+			var b scanner.Block
+			brows.Scan(&b.Hash, &b.Size, &b.Offset)
+			f.Blocks = append(f.Blocks, b)
+		}
+
+		files = append(files, f)
+	}
+
+	return files
+}
+
+func (db *fileDB) need(cid uint) []scanner.File {
+	rows, err := db.stmts["selectNeed"].Query(db.repo, cid, db.repo)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		l.Fatalln(err)
+	}
+
+	var files []scanner.File
+	for rows.Next() {
+		var name string
+		var version uint64
+		var id int64
+		err = rows.Scan(&name, &version)
+		if err != nil {
+			l.Fatalln(err)
+		}
+
+		var f scanner.File
+		row := db.stmts["selectFileAllVersion"].QueryRow(name, version)
+		err = row.Scan(&id, &f.Name, &f.Flags, &f.Modified, &f.Version, &f.Suppressed)
+		if err != nil {
+			l.Fatalln(err)
+		}
 
 		brows, err := db.stmts["selectBlock"].Query(id)
 		if err != nil && err != sql.ErrNoRows {
@@ -331,7 +390,10 @@ func (db *fileDB) get(cid uint, name string) scanner.File {
 
 	row := db.stmts["selectFileAll"].QueryRow(cid, db.repo, name)
 	err := row.Scan(&id, &f.Name, &f.Flags, &f.Modified, &f.Version, &f.Suppressed)
-	if err != nil && err != sql.ErrNoRows {
+	if err == sql.ErrNoRows {
+		return f
+	}
+	if err != nil {
 		l.Fatalln(err)
 	}
 
@@ -347,4 +409,90 @@ func (db *fileDB) get(cid uint, name string) scanner.File {
 	}
 
 	return f
+}
+
+func (db *fileDB) getGlobal(name string) scanner.File {
+	var f scanner.File
+	var gid *uint64
+
+	row := db.stmts["selectGlobalID"].QueryRow(db.repo, name)
+	err := row.Scan(&gid)
+	if gid == nil {
+		return f
+	}
+	if err != nil {
+		l.Fatalln(err)
+	}
+
+	var id uint64
+	row = db.stmts["selectFileAllID"].QueryRow(*gid)
+	err = row.Scan(&id, &f.Name, &f.Flags, &f.Modified, &f.Version, &f.Suppressed)
+	if err == sql.ErrNoRows {
+		return f
+	}
+	if err != nil {
+		l.Fatalln(err)
+	}
+
+	brows, err := db.stmts["selectBlock"].Query(id)
+	if err != nil && err != sql.ErrNoRows {
+		l.Fatalln(err)
+	}
+
+	for brows.Next() {
+		var b scanner.Block
+		brows.Scan(&b.Hash, &b.Size, &b.Offset)
+		f.Blocks = append(f.Blocks, b)
+	}
+
+	return f
+}
+
+func (db *fileDB) maxID(cid uint) uint64 {
+	var id *uint64
+
+	row := db.stmts["selectMaxID"].QueryRow(cid, db.repo)
+	err := row.Scan(&id)
+	if id == nil {
+		return 0
+	}
+	if err != nil {
+		l.Fatalln(err)
+	}
+	return *id
+}
+
+func (db *fileDB) availability(name string) uint64 {
+	var version *int64
+	row := db.stmts["selectMaxVersion"].QueryRow(db.repo, name)
+	err := row.Scan(&version)
+	if version == nil {
+		return 0
+	}
+	if err != nil {
+		l.Fatalln(err)
+	}
+
+	rows, err := db.stmts["selectWithVersion"].Query(db.repo, name, *version)
+	if err == sql.ErrNoRows {
+		return 0
+	}
+	if err != nil {
+		l.Fatalln(err)
+	}
+
+	var available uint64
+	var node uint
+	var supp bool
+	for rows.Next() {
+		err = rows.Scan(&node, &supp)
+		if err != nil {
+			l.Fatalln(err)
+		}
+		if !supp {
+			available |= 1 << node
+		}
+	}
+
+	return available
 }
