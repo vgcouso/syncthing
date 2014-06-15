@@ -96,8 +96,8 @@ type asyncResult struct {
 }
 
 const (
-	pingTimeout  = 300 * time.Second
-	pingIdleTime = 600 * time.Second
+	pingTimeout  = 30 * time.Second
+	pingIdleTime = 60 * time.Second
 )
 
 func NewConnection(nodeID string, reader io.Reader, writer io.Writer, receiver Model) Connection {
@@ -165,9 +165,11 @@ func (c *rawConnection) Index(repo string, idx []FileInfo) {
 		}
 		idx = diff
 	}
-	c.imut.Unlock()
 
-	c.send(header{0, -1, msgType}, IndexMessage{repo, idx})
+	if len(idx) > 0 {
+		c.send(header{0, -1, msgType}, IndexMessage{repo, idx})
+	}
+	c.imut.Unlock()
 }
 
 // Request returns the bytes for the specified block after fetching them from the connected peer.

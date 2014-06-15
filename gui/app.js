@@ -30,21 +30,37 @@ syncthing.controller('SyncthingCtrl', function ($scope, $http) {
     $scope.seenError = '';
     $scope.model = {};
     $scope.repos = {};
+    $scope.reportData = {};
+    $scope.reportPreview = false;
+
+    $scope.needActions = {
+        'rm': 'Del',
+        'rmdir': 'Del (dir)',
+        'sync': 'Sync',
+        'touch': 'Update',
+    }
+    $scope.needIcons = {
+        'rm': 'remove',
+        'rmdir': 'remove',
+        'sync': 'download',
+        'touch': 'asterisk',
+    }
 
     // Strings before bools look better
     $scope.settings = [
-    {id: 'ListenStr', descr: 'Sync Protocol Listen Addresses', type: 'text', restart: true},
-    {id: 'MaxSendKbps', descr: 'Outgoing Rate Limit (KiB/s)', type: 'number', restart: true},
-    {id: 'RescanIntervalS', descr: 'Rescan Interval (s)', type: 'number', restart: true},
-    {id: 'ReconnectIntervalS', descr: 'Reconnect Interval (s)', type: 'number', restart: true},
-    {id: 'ParallelRequests', descr: 'Max Outstanding Requests', type: 'number', restart: true},
-    {id: 'MaxChangeKbps', descr: 'Max File Change Rate (KiB/s)', type: 'number', restart: true},
+    {id: 'ListenStr', descr: 'Sync Protocol Listen Addresses', type: 'text'},
+    {id: 'MaxSendKbps', descr: 'Outgoing Rate Limit (KiB/s)', type: 'number'},
+    {id: 'RescanIntervalS', descr: 'Rescan Interval (s)', type: 'number'},
+    {id: 'ReconnectIntervalS', descr: 'Reconnect Interval (s)', type: 'number'},
+    {id: 'ParallelRequests', descr: 'Max Outstanding Requests', type: 'number'},
+    {id: 'MaxChangeKbps', descr: 'Max File Change Rate (KiB/s)', type: 'number'},
 
-    {id: 'GlobalAnnEnabled', descr: 'Global Discovery', type: 'bool', restart: true},
-    {id: 'LocalAnnEnabled', descr: 'Local Discovery', type: 'bool', restart: true},
-    {id: 'LocalAnnPort', descr: 'Local Discovery Port', type: 'number', restart: true},
+    {id: 'LocalAnnPort', descr: 'Local Discovery Port', type: 'number'},
+    {id: 'LocalAnnEnabled', descr: 'Local Discovery', type: 'bool'},
+    {id: 'GlobalAnnEnabled', descr: 'Global Discovery', type: 'bool'},
     {id: 'StartBrowser', descr: 'Start Browser', type: 'bool'},
     {id: 'UPnPEnabled', descr: 'Enable UPnP', type: 'bool'},
+    {id: 'UREnabled', descr: 'Anonymous Usage Reporting', type: 'bool'},
     ];
 
     $scope.guiSettings = [
@@ -544,11 +560,71 @@ syncthing.controller('SyncthingCtrl', function ($scope, $http) {
             $scope.repos = repoMap($scope.config.Repositories);
 
             $scope.refresh();
+
+            if (!$scope.config.Options.UREnabled && !$scope.config.Options.URDeclined) {
+                // If usage reporting has been neither accepted nor declined,
+                // we want to ask the user to make a choice. But we don't want
+                // to bug them during initial setup, so we set a cookie with
+                // the time of the first visit. When that cookie is present
+                // and the time is more than four hours ago, we ask the
+                // question.
+
+                var firstVisit = document.cookie.replace(/(?:(?:^|.*;\s*)firstVisit\s*\=\s*([^;]*).*$)|^.*$/, "$1");
+                if (!firstVisit) {
+                    document.cookie = "firstVisit=" + Date.now() + ";max-age=" + 30*24*3600;
+                } else {
+                    if (+firstVisit < Date.now() - 4*3600*1000){
+                        $('#ur').modal({backdrop: 'static', keyboard: false});
+                    }
+                }
+            }
         });
 
         $http.get(urlbase + '/config/sync').success(function (data) {
             $scope.configInSync = data.configInSync;
         });
+
+        $http.get(urlbase + '/report').success(function (data) {
+            $scope.reportData = data;
+        });
+    };
+
+    $scope.acceptUR = function () {
+        $scope.config.Options.UREnabled = true;
+        $scope.config.Options.URDeclined = false;
+        $scope.saveConfig();
+        $('#ur').modal('hide');
+    };
+
+    $scope.declineUR = function () {
+        $scope.config.Options.UREnabled = false;
+        $scope.config.Options.URDeclined = true;
+        $scope.saveConfig();
+        $('#ur').modal('hide');
+    };
+
+    $scope.showNeed = function (repo) {
+        $scope.neededLoaded = false;
+        $('#needed').modal({backdrop: 'static', keyboard: true});
+        $http.get(urlbase + "/need?repo=" + encodeURIComponent(repo)).success(function (data) {
+            $scope.needed = data;
+            $scope.neededLoaded = true;
+        });
+    };
+
+    $scope.needAction = function (file) {
+        var fDelete = 4096;
+        var fDirectory = 16384;
+
+        if ((file.Flags & (fDelete+fDirectory)) === fDelete+fDirectory) {
+            return 'rmdir';
+        } else if ((file.Flags & fDelete) === fDelete) {
+            return 'rm';
+        } else if ((file.Flags & fDirectory) === fDirectory) {
+            return 'touch';
+        } else {
+            return 'sync';
+        }
     };
 
     $scope.init();
@@ -698,6 +774,18 @@ syncthing.filter('shortPath', function () {
             return input;
         }
         return ".../" + parts.slice(parts.length-2).join("/");
+    };
+});
+
+syncthing.filter('basename', function () {
+    return function (input) {
+        if (input === undefined)
+            return "";
+        var parts = input.split(/[\/\\]/);
+        if (!parts || parts.length < 1) {
+            return input;
+        }
+        return parts[parts.length-1];
     };
 });
 

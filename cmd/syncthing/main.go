@@ -36,6 +36,7 @@ import (
 
 var (
 	Version     = "unknown-dev"
+	BuildEnv    = "default"
 	BuildStamp  = "0"
 	BuildDate   time.Time
 	BuildHost   = "unknown"
@@ -50,7 +51,7 @@ func init() {
 	BuildDate = time.Unix(int64(stamp), 0)
 
 	date := BuildDate.UTC().Format("2006-01-02 15:04:05 MST")
-	LongVersion = fmt.Sprintf("syncthing %s (%s %s-%s) %s@%s %s", Version, runtime.Version(), runtime.GOOS, runtime.GOARCH, BuildUser, BuildHost, date)
+	LongVersion = fmt.Sprintf("syncthing %s (%s %s-%s %s) %s@%s %s", Version, runtime.Version(), runtime.GOOS, runtime.GOARCH, BuildEnv, BuildUser, BuildHost, date)
 
 	if os.Getenv("STTRACE") != "" {
 		logFlags = log.Ltime | log.Ldate | log.Lmicroseconds | log.Lshortfile
@@ -106,6 +107,10 @@ The following enviroment variables are interpreted by syncthing:
 
  STGUIASSETS   Directory to load GUI assets from. Overrides compiled in assets.`
 )
+
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
 
 func main() {
 	var reset bool
@@ -354,8 +359,7 @@ func main() {
 	if cfg.Options.UPnPEnabled {
 		// We seed the random number generator with the node ID to get a
 		// repeatable sequence of random external ports.
-		rand.Seed(certSeed(cert.Certificate[0]))
-		externalPort = setupUPnP()
+		externalPort = setupUPnP(rand.NewSource(certSeed(cert.Certificate[0])))
 	}
 
 	// Routine to connect out to configured nodes
@@ -393,6 +397,21 @@ func main() {
 		}
 	}
 
+	if cfg.Options.UREnabled && cfg.Options.URAccepted < usageReportVersion {
+		l.Infoln("Anonymous usage report has changed; revoking acceptance")
+		cfg.Options.UREnabled = false
+	}
+	if cfg.Options.UREnabled {
+		go usageReportingLoop(m)
+		go func() {
+			time.Sleep(10 * time.Minute)
+			err := sendUsageReport(m)
+			if err != nil {
+				l.Infoln("Usage report:", err)
+			}
+		}()
+	}
+
 	<-stop
 	l.Okln("Exiting")
 }
@@ -411,7 +430,7 @@ func waitForParentExit() {
 	l.Okln("Continuing")
 }
 
-func setupUPnP() int {
+func setupUPnP(r rand.Source) int {
 	var externalPort = 0
 	if len(cfg.Options.ListenAddress) == 1 {
 		_, portStr, err := net.SplitHostPort(cfg.Options.ListenAddress[0])
@@ -423,7 +442,7 @@ func setupUPnP() int {
 			igd, err := upnp.Discover()
 			if err == nil {
 				for i := 0; i < 10; i++ {
-					r := 1024 + rand.Intn(65535-1024)
+					r := 1024 + int(r.Int63()%(65535-1024))
 					err := igd.AddPortMapping(upnp.TCP, r, port, "syncthing", 0)
 					if err == nil {
 						externalPort = r
