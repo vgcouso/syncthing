@@ -343,7 +343,7 @@ nextRepo:
 	// connections to other nodes.
 
 	l.Infoln("Populating repository index")
-	m.LoadIndexes(confDir)
+	//m.LoadIndexes(confDir)
 	m.CleanRepos()
 	m.ScanRepos()
 	m.SaveIndexes(confDir)

@@ -6,10 +6,11 @@
 package files
 
 import (
+	"bytes"
+	"errors"
 	"sync"
 
-	"github.com/calmh/syncthing/cid"
-	"github.com/calmh/syncthing/lamport"
+	"github.com/boltdb/bolt"
 	"github.com/calmh/syncthing/protocol"
 	"github.com/calmh/syncthing/scanner"
 )
@@ -23,297 +24,355 @@ type fileRecord struct {
 type bitset uint64
 
 type Set struct {
-	sync.Mutex
-	files              map[key]fileRecord
-	remoteKey          [64]map[string]key
-	changes            [64]uint64
-	globalAvailability map[string]bitset
-	globalKey          map[string]key
+	changes [64]uint64
+	cMut    sync.Mutex
+
+	repo string
+	db   *bolt.DB
 }
 
-func NewSet() *Set {
+func NewSet(repo string, db *bolt.DB) *Set {
 	var m = Set{
-		files:              make(map[key]fileRecord),
-		globalAvailability: make(map[string]bitset),
-		globalKey:          make(map[string]key),
+		repo: repo,
+		db:   db,
 	}
 	return &m
 }
 
 func (m *Set) Replace(id uint, fs []scanner.File) {
 	if debug {
-		l.Debugf("Replace(%d, [%d])", id, len(fs))
+		l.Debugf("%s Replace(%d, [%d])", m.repo, id, len(fs))
 	}
 	if id > 63 {
 		panic("Connection ID must be in the range 0 - 63 inclusive")
 	}
 
-	m.Lock()
-	if len(fs) == 0 || !m.equals(id, fs) {
-		m.changes[id]++
-		m.replace(id, fs)
+	m.cMut.Lock()
+	m.changes[id] = 0
+	for _, f := range fs {
+		if f.Version > m.changes[id] {
+			m.changes[id] = f.Version
+		}
 	}
-	m.Unlock()
+	m.cMut.Unlock()
+
+	err := m.db.Update(boltReplace(id, m.repo, fs))
+	l.FatalErr(err)
 }
 
 func (m *Set) ReplaceWithDelete(id uint, fs []scanner.File) {
 	if debug {
-		l.Debugf("ReplaceWithDelete(%d, [%d])", id, len(fs))
+		l.Debugf("%s ReplaceWithDelete(%d, [%d])", m.repo, id, len(fs))
 	}
 	if id > 63 {
 		panic("Connection ID must be in the range 0 - 63 inclusive")
 	}
 
-	m.Lock()
-	if len(fs) == 0 || !m.equals(id, fs) {
-		m.changes[id]++
-
-		var nf = make(map[string]key, len(fs))
-		for _, f := range fs {
-			nf[f.Name] = keyFor(f)
+	m.cMut.Lock()
+	m.changes[id] = 0
+	for _, f := range fs {
+		if f.Version > m.changes[id] {
+			m.changes[id] = f.Version
 		}
-
-		// For previously existing files not in the list, add them to the list
-		// with the relevant delete flags etc set. Previously existing files
-		// with the delete bit already set are not modified.
-
-		for _, ck := range m.remoteKey[cid.LocalID] {
-			if _, ok := nf[ck.Name]; !ok {
-				cf := m.files[ck].File
-				if !protocol.IsDeleted(cf.Flags) {
-					cf.Flags |= protocol.FlagDeleted
-					cf.Blocks = nil
-					cf.Size = 0
-					cf.Version = lamport.Default.Tick(cf.Version)
-				}
-				fs = append(fs, cf)
-				if debug {
-					l.Debugln("deleted:", ck.Name)
-				}
-			}
-		}
-
-		m.replace(id, fs)
 	}
-	m.Unlock()
+	m.cMut.Unlock()
+
+	err := m.db.Update(boltReplaceWithDelete(id, m.repo, fs))
+	l.FatalErr(err)
 }
 
 func (m *Set) Update(id uint, fs []scanner.File) {
 	if debug {
-		l.Debugf("Update(%d, [%d])", id, len(fs))
+		l.Debugf("%s Update(%d, [%d])", m.repo, id, len(fs))
 	}
-	m.Lock()
-	m.update(id, fs)
-	m.changes[id]++
-	m.Unlock()
+	if id > 63 {
+		panic("Connection ID must be in the range 0 - 63 inclusive")
+	}
+
+	m.cMut.Lock()
+	for _, f := range fs {
+		if f.Version > m.changes[id] {
+			m.changes[id] = f.Version
+		}
+	}
+	m.cMut.Unlock()
+
+	err := m.db.Update(boltUpdate(id, m.repo, fs))
+	l.FatalErr(err)
 }
 
 func (m *Set) Need(id uint) []scanner.File {
 	if debug {
-		l.Debugf("Need(%d)", id)
+		l.Debugf("%s Need(%d)", m.repo, id)
 	}
-	m.Lock()
-	var fs = make([]scanner.File, 0, len(m.globalKey)/2) // Just a guess, but avoids too many reallocations
-	rkID := m.remoteKey[id]
-	for gk, gf := range m.files {
-		if !gf.Global || gf.File.Suppressed {
-			continue
+	if id > 63 {
+		panic("Connection ID must be in the range 0 - 63 inclusive")
+	}
+
+	var need []scanner.File
+	var f scanner.File
+
+	appendNeed := func(bs []byte) {
+		err := f.UnmarshalXDR(bs)
+		l.FatalErr(err)
+		if !protocol.IsDeleted(f.Flags) {
+			need = append(need, f)
+		}
+	}
+
+	err := m.db.View(func(tx *bolt.Tx) error {
+		gbkt := tx.Bucket([]byte("global"))
+		if gbkt == nil {
+			return errors.New("no global bucket")
 		}
 
-		if rk, ok := rkID[gk.Name]; gk.newerThan(rk) {
-			if protocol.IsDeleted(gf.File.Flags) && (!ok || protocol.IsDeleted(m.files[rk].File.Flags)) {
-				// We don't need to delete files we don't have or that are already deleted
-				continue
+		gbkt = gbkt.Bucket([]byte(m.repo))
+		if gbkt == nil {
+			// The repo is unknown
+			return nil
+		}
+
+		hbkt := tx.Bucket([]byte("files"))
+		if hbkt == nil {
+			return errors.New("no files bucket")
+		}
+
+		hbkt = hbkt.Bucket([]byte(m.repo))
+		if hbkt == nil {
+			// The repo is unknown
+			return nil
+		}
+
+		hbkt = hbkt.Bucket([]byte{byte(id)})
+		if hbkt == nil {
+			// The node has no files
+			need = boltBucketFiles(gbkt)
+			return nil
+		}
+
+		hc := hbkt.Cursor()
+		gc := gbkt.Cursor()
+
+		hk, hv := hc.First()
+		gk, gv := gc.First()
+
+		var hf scanner.File
+		var gf scanner.File
+
+		for gk != nil {
+			if hk == nil {
+				// Node index is at the end
+				appendNeed(gv)
+			} else {
+				d := bytes.Compare(gk, hk)
+				if d < 0 {
+					// Node is missing a file
+					appendNeed(gv)
+				} else if d == 0 {
+					// File is there, need to compare version
+					err := hf.UnmarshalXDR(hv)
+					l.FatalErr(err)
+					err = gf.UnmarshalXDR(gv)
+					l.FatalErr(err)
+					if gf.NewerThan(hf) {
+						need = append(need, gf)
+					}
+					hk, hv = hc.Next()
+				} else {
+					panic("global index corrupt")
+				}
 			}
 
-			fs = append(fs, gf.File)
+			gk, gv = gc.Next()
 		}
-	}
-	m.Unlock()
-	return fs
+
+		return nil
+	})
+	l.FatalErr(err)
+
+	return need
 }
 
 func (m *Set) Have(id uint) []scanner.File {
 	if debug {
-		l.Debugf("Have(%d)", id)
+		l.Debugf("%s Have(%d)", m.repo, id)
 	}
-	var fs = make([]scanner.File, 0, len(m.remoteKey[id]))
-	m.Lock()
-	for _, rk := range m.remoteKey[id] {
-		fs = append(fs, m.files[rk].File)
+	if id > 63 {
+		panic("Connection ID must be in the range 0 - 63 inclusive")
 	}
-	m.Unlock()
+
+	var fs []scanner.File
+
+	err := m.db.View(func(tx *bolt.Tx) error {
+		bkt := tx.Bucket([]byte("files"))
+		if bkt == nil {
+			return errors.New("no root bucket")
+		}
+
+		bkt = bkt.Bucket([]byte(m.repo))
+		if bkt == nil {
+			return nil
+		}
+
+		bkt = bkt.Bucket([]byte{byte(id)})
+		if bkt == nil {
+			return nil
+		}
+
+		fs = boltBucketFiles(bkt)
+
+		return nil
+	})
+	l.FatalErr(err)
+
 	return fs
 }
 
 func (m *Set) Global() []scanner.File {
 	if debug {
-		l.Debugf("Global()")
+		l.Debugf("%s Global()", m.repo)
 	}
-	m.Lock()
-	var fs = make([]scanner.File, 0, len(m.globalKey))
-	for _, file := range m.files {
-		if file.Global {
-			fs = append(fs, file.File)
+
+	var fs []scanner.File
+
+	err := m.db.View(func(tx *bolt.Tx) error {
+		bkt := tx.Bucket([]byte("global"))
+		if bkt == nil {
+			return errors.New("no global bucket")
 		}
-	}
-	m.Unlock()
+
+		bkt = bkt.Bucket([]byte(m.repo))
+		if bkt == nil {
+			return nil
+		}
+
+		fs = boltBucketFiles(bkt)
+		return nil
+	})
+	l.FatalErr(err)
+
 	return fs
 }
 
 func (m *Set) Get(id uint, file string) scanner.File {
-	m.Lock()
-	defer m.Unlock()
-	if debug {
-		l.Debugf("Get(%d, %q)", id, file)
+	if id > 63 {
+		panic("Connection ID must be in the range 0 - 63 inclusive")
 	}
-	return m.files[m.remoteKey[id][file]].File
+
+	var f scanner.File
+	err := m.db.View(func(tx *bolt.Tx) error {
+		bkt := tx.Bucket([]byte("files"))
+		if bkt == nil {
+			return nil
+		}
+
+		bkt = bkt.Bucket([]byte(m.repo))
+		if bkt == nil {
+			return nil
+		}
+
+		bkt = bkt.Bucket([]byte{byte(id)})
+		if bkt == nil {
+			return nil
+		}
+
+		v := bkt.Get([]byte(file))
+		if v == nil {
+			return nil
+		}
+
+		return f.UnmarshalXDR(v)
+	})
+	l.FatalErr(err)
+	return f
 }
 
 func (m *Set) GetGlobal(file string) scanner.File {
-	m.Lock()
-	defer m.Unlock()
-	if debug {
-		l.Debugf("GetGlobal(%q)", file)
-	}
-	return m.files[m.globalKey[file]].File
+	var f scanner.File
+	err := m.db.View(func(tx *bolt.Tx) error {
+		bkt := tx.Bucket([]byte("global"))
+		if bkt == nil {
+			return errors.New("no global bucket")
+		}
+
+		bkt = bkt.Bucket([]byte(m.repo))
+		if bkt == nil {
+			return errors.New("no repo bucket")
+		}
+
+		v := bkt.Get([]byte(file))
+		if v == nil {
+			return nil
+		}
+
+		return f.UnmarshalXDR(v)
+	})
+	l.FatalErr(err)
+	return f
 }
 
 func (m *Set) Availability(name string) bitset {
-	m.Lock()
-	defer m.Unlock()
-	av := m.globalAvailability[name]
-	if debug {
-		l.Debugf("Availability(%q) = %0x", name, av)
-	}
+	var av bitset
+
+	m.db.View(func(tx *bolt.Tx) error {
+		bkt := tx.Bucket([]byte("global"))
+		if bkt == nil {
+			return nil
+		}
+
+		bkt = bkt.Bucket([]byte(m.repo))
+		if bkt == nil {
+			return nil
+		}
+
+		gv := bkt.Get([]byte(name))
+		if gv == nil {
+			panic("availability for nonexistent file")
+		}
+		var gf scanner.File
+		err := gf.UnmarshalXDR(gv)
+		if err != nil {
+			return err
+		}
+
+		bkt = tx.Bucket([]byte("files"))
+		if bkt == nil {
+			return nil
+		}
+
+		bkt = bkt.Bucket([]byte(m.repo))
+		if bkt == nil {
+			return nil
+		}
+
+		c := bkt.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			if v != nil {
+				panic("non-bucket key under repo")
+			}
+
+			nbkt := bkt.Bucket(k)
+			lv := nbkt.Get([]byte(name))
+			if lv == nil {
+				continue
+			}
+			var lf scanner.File
+			lf.UnmarshalXDR(lv)
+			if lf.Version == gf.Version {
+				av |= 1 << uint(k[0])
+			}
+		}
+		return nil
+	})
+
 	return av
 }
 
 func (m *Set) Changes(id uint) uint64 {
-	m.Lock()
-	defer m.Unlock()
-	if debug {
-		l.Debugf("Changes(%d)", id)
+	if id > 63 {
+		panic("Connection ID must be in the range 0 - 63 inclusive")
 	}
+	m.cMut.Lock()
+	defer m.cMut.Unlock()
 	return m.changes[id]
-}
-
-func (m *Set) equals(id uint, fs []scanner.File) bool {
-	curWithoutDeleted := make(map[string]key)
-	for _, k := range m.remoteKey[id] {
-		f := m.files[k].File
-		if !protocol.IsDeleted(f.Flags) {
-			curWithoutDeleted[f.Name] = k
-		}
-	}
-	if len(curWithoutDeleted) != len(fs) {
-		return false
-	}
-	for _, f := range fs {
-		if curWithoutDeleted[f.Name] != keyFor(f) {
-			return false
-		}
-	}
-	return true
-}
-
-func (m *Set) update(cid uint, fs []scanner.File) {
-	remFiles := m.remoteKey[cid]
-	if remFiles == nil {
-		l.Fatalln("update before replace for cid", cid)
-	}
-	for _, f := range fs {
-		n := f.Name
-		fk := keyFor(f)
-
-		if ck, ok := remFiles[n]; ok && ck == fk {
-			// The remote already has exactly this file, skip it
-			continue
-		}
-
-		remFiles[n] = fk
-
-		// Keep the block list or increment the usage
-		if br, ok := m.files[fk]; !ok {
-			m.files[fk] = fileRecord{
-				Usage: 1,
-				File:  f,
-			}
-		} else {
-			br.Usage++
-			m.files[fk] = br
-		}
-
-		// Update global view
-		gk, ok := m.globalKey[n]
-		switch {
-		case ok && fk == gk:
-			av := m.globalAvailability[n]
-			av |= 1 << cid
-			m.globalAvailability[n] = av
-		case fk.newerThan(gk):
-			if ok {
-				f := m.files[gk]
-				f.Global = false
-				m.files[gk] = f
-			}
-			f := m.files[fk]
-			f.Global = true
-			m.files[fk] = f
-			m.globalKey[n] = fk
-			m.globalAvailability[n] = 1 << cid
-		}
-	}
-}
-
-func (m *Set) replace(cid uint, fs []scanner.File) {
-	// Decrement usage for all files belonging to this remote, and remove
-	// those that are no longer needed.
-	for _, fk := range m.remoteKey[cid] {
-		br, ok := m.files[fk]
-		switch {
-		case ok && br.Usage == 1:
-			delete(m.files, fk)
-		case ok && br.Usage > 1:
-			br.Usage--
-			m.files[fk] = br
-		}
-	}
-
-	// Clear existing remote remoteKey
-	m.remoteKey[cid] = make(map[string]key)
-
-	// Recalculate global based on all remaining remoteKey
-	for n := range m.globalKey {
-		var nk key    // newest key
-		var na bitset // newest availability
-
-		for i, rem := range m.remoteKey {
-			if rk, ok := rem[n]; ok {
-				switch {
-				case rk == nk:
-					na |= 1 << uint(i)
-				case rk.newerThan(nk):
-					nk = rk
-					na = 1 << uint(i)
-				}
-			}
-		}
-
-		if na != 0 {
-			// Someone had the file
-			f := m.files[nk]
-			f.Global = true
-			m.files[nk] = f
-			m.globalKey[n] = nk
-			m.globalAvailability[n] = na
-		} else {
-			// Noone had the file
-			delete(m.globalKey, n)
-			delete(m.globalAvailability, n)
-		}
-	}
-
-	// Add new remote remoteKey to the mix
-	m.update(cid, fs)
 }

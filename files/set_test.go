@@ -6,16 +6,31 @@ package files_test
 
 import (
 	"fmt"
-	"reflect"
+	"os"
 	"sort"
 	"testing"
 
+	"github.com/boltdb/bolt"
 	"github.com/calmh/syncthing/cid"
 	"github.com/calmh/syncthing/files"
 	"github.com/calmh/syncthing/lamport"
 	"github.com/calmh/syncthing/protocol"
 	"github.com/calmh/syncthing/scanner"
 )
+
+func genBlocks(n int) []scanner.Block {
+	b := make([]scanner.Block, n)
+	for i := range b {
+		h := make([]byte, 32)
+		for j := range h {
+			h[j] = byte(i + j)
+		}
+		b[i].Size = uint32(i)
+		b[i].Offset = int64(i)
+		b[i].Hash = h
+	}
+	return b
+}
 
 type fileList []scanner.File
 
@@ -32,100 +47,123 @@ func (l fileList) Swap(a, b int) {
 }
 
 func TestGlobalSet(t *testing.T) {
-	m := files.NewSet()
+	os.RemoveAll("testdata/index.db")
+	db, err := bolt.Open("testdata/index.db", 0660)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
 
-	local := []scanner.File{
-		scanner.File{Name: "a", Version: 1000},
-		scanner.File{Name: "b", Version: 1000},
-		scanner.File{Name: "c", Version: 1000},
-		scanner.File{Name: "d", Version: 1000},
+	m := files.NewSet("test", db)
+
+	local0 := []scanner.File{
+		scanner.File{Name: "a", Version: 1000, Blocks: genBlocks(1)},
+		scanner.File{Name: "b", Version: 1000, Blocks: genBlocks(2)},
+		scanner.File{Name: "c", Version: 1000, Blocks: genBlocks(3)},
+		scanner.File{Name: "d", Version: 1000, Blocks: genBlocks(4)},
+		scanner.File{Name: "z", Version: 1000, Blocks: genBlocks(8)},
+	}
+	local1 := []scanner.File{
+		scanner.File{Name: "a", Version: 1000, Blocks: genBlocks(1)},
+		scanner.File{Name: "b", Version: 1000, Blocks: genBlocks(2)},
+		scanner.File{Name: "c", Version: 1000, Blocks: genBlocks(3)},
+		scanner.File{Name: "d", Version: 1000, Blocks: genBlocks(4)},
+	}
+	localTot := []scanner.File{
+		local0[0],
+		local0[1],
+		local0[2],
+		local0[3],
+		scanner.File{Name: "z", Version: 1001, Flags: protocol.FlagDeleted},
 	}
 
 	remote0 := []scanner.File{
-		scanner.File{Name: "a", Version: 1000},
-		scanner.File{Name: "c", Version: 1002},
+		scanner.File{Name: "a", Version: 1000, Blocks: genBlocks(1)},
+		scanner.File{Name: "c", Version: 1002, Blocks: genBlocks(5)},
 	}
 	remote1 := []scanner.File{
-		scanner.File{Name: "b", Version: 1001},
-		scanner.File{Name: "e", Version: 1000},
+		scanner.File{Name: "b", Version: 1001, Blocks: genBlocks(6)},
+		scanner.File{Name: "e", Version: 1000, Blocks: genBlocks(7)},
 	}
 	remoteTot := []scanner.File{
-		scanner.File{Name: "a", Version: 1000},
-		scanner.File{Name: "b", Version: 1001},
-		scanner.File{Name: "c", Version: 1002},
-		scanner.File{Name: "e", Version: 1000},
+		remote0[0],
+		remote1[0],
+		remote0[1],
+		remote1[1],
 	}
 
 	expectedGlobal := []scanner.File{
-		scanner.File{Name: "a", Version: 1000},
-		scanner.File{Name: "b", Version: 1001},
-		scanner.File{Name: "c", Version: 1002},
-		scanner.File{Name: "d", Version: 1000},
-		scanner.File{Name: "e", Version: 1000},
+		remote0[0],
+		remote1[0],
+		remote0[1],
+		localTot[3],
+		remote1[1],
+		localTot[4],
 	}
 
 	expectedLocalNeed := []scanner.File{
-		scanner.File{Name: "b", Version: 1001},
-		scanner.File{Name: "c", Version: 1002},
-		scanner.File{Name: "e", Version: 1000},
+		remote1[0],
+		remote0[1],
+		remote1[1],
 	}
 
 	expectedRemoteNeed := []scanner.File{
-		scanner.File{Name: "d", Version: 1000},
+		local0[3],
 	}
 
-	m.ReplaceWithDelete(cid.LocalID, local)
+	m.ReplaceWithDelete(cid.LocalID, local0)
+	m.ReplaceWithDelete(cid.LocalID, local1)
 	m.Replace(1, remote0)
 	m.Update(1, remote1)
 
 	g := m.Global()
 	sort.Sort(fileList(g))
 
-	if !reflect.DeepEqual(g, expectedGlobal) {
+	if fmt.Sprint(g) != fmt.Sprint(expectedGlobal) {
 		t.Errorf("Global incorrect;\n A: %v !=\n E: %v", g, expectedGlobal)
 	}
 
 	h := m.Have(cid.LocalID)
 	sort.Sort(fileList(h))
 
-	if !reflect.DeepEqual(h, local) {
-		t.Errorf("Have incorrect;\n A: %v !=\n E: %v", h, local)
+	if fmt.Sprint(h) != fmt.Sprint(localTot) {
+		t.Errorf("Have incorrect;\n A: %v !=\n E: %v", h, localTot)
 	}
 
 	h = m.Have(1)
 	sort.Sort(fileList(h))
 
-	if !reflect.DeepEqual(h, remoteTot) {
+	if fmt.Sprint(h) != fmt.Sprint(remoteTot) {
 		t.Errorf("Have incorrect;\n A: %v !=\n E: %v", h, remoteTot)
 	}
 
 	n := m.Need(cid.LocalID)
 	sort.Sort(fileList(n))
 
-	if !reflect.DeepEqual(n, expectedLocalNeed) {
+	if fmt.Sprint(n) != fmt.Sprint(expectedLocalNeed) {
 		t.Errorf("Need incorrect;\n A: %v !=\n E: %v", n, expectedLocalNeed)
 	}
 
 	n = m.Need(1)
 	sort.Sort(fileList(n))
 
-	if !reflect.DeepEqual(n, expectedRemoteNeed) {
+	if fmt.Sprint(n) != fmt.Sprint(expectedRemoteNeed) {
 		t.Errorf("Need incorrect;\n A: %v !=\n E: %v", n, expectedRemoteNeed)
 	}
 
 	f := m.Get(cid.LocalID, "b")
-	if !reflect.DeepEqual(f, local[1]) {
-		t.Errorf("Get incorrect;\n A: %v !=\n E: %v", f, local[1])
+	if fmt.Sprint(f) != fmt.Sprint(localTot[1]) {
+		t.Errorf("Get incorrect;\n A: %v !=\n E: %v", f, localTot[1])
 	}
 
 	f = m.Get(1, "b")
-	if !reflect.DeepEqual(f, remote1[0]) {
+	if fmt.Sprint(f) != fmt.Sprint(remote1[0]) {
 		t.Errorf("Get incorrect;\n A: %v !=\n E: %v", f, remote1[0])
 	}
 
 	f = m.GetGlobal("b")
-	if !reflect.DeepEqual(f, remote1[0]) {
-		t.Errorf("Get incorrect;\n A: %v !=\n E: %v", f, remote1[0])
+	if fmt.Sprint(f) != fmt.Sprint(remote1[0]) {
+		t.Errorf("GetGlobal incorrect;\n A: %v !=\n E: %v", f, remote1[0])
 	}
 
 	a := int(m.Availability("a"))
@@ -143,7 +181,13 @@ func TestGlobalSet(t *testing.T) {
 }
 
 func TestLocalDeleted(t *testing.T) {
-	m := files.NewSet()
+	os.RemoveAll("testdata/index.db")
+	db, err := bolt.Open("testdata/index.db", 0660)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	m := files.NewSet("test", db)
 	lamport.Default = lamport.Clock{}
 
 	local1 := []scanner.File{
@@ -187,7 +231,7 @@ func TestLocalDeleted(t *testing.T) {
 	sort.Sort(fileList(g))
 	sort.Sort(fileList(expectedGlobal1))
 
-	if !reflect.DeepEqual(g, expectedGlobal1) {
+	if fmt.Sprint(g) != fmt.Sprint(expectedGlobal1) {
 		t.Errorf("Global incorrect;\n A: %v !=\n E: %v", g, expectedGlobal1)
 	}
 
@@ -208,12 +252,19 @@ func TestLocalDeleted(t *testing.T) {
 	sort.Sort(fileList(g))
 	sort.Sort(fileList(expectedGlobal2))
 
-	if !reflect.DeepEqual(g, expectedGlobal2) {
+	if fmt.Sprint(g) != fmt.Sprint(expectedGlobal2) {
 		t.Errorf("Global incorrect;\n A: %v !=\n E: %v", g, expectedGlobal2)
 	}
 }
 
 func Benchmark10kReplace(b *testing.B) {
+	os.RemoveAll("testdata/index.db")
+	db, err := bolt.Open("testdata/index.db", 0660)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+
 	var local []scanner.File
 	for i := 0; i < 10000; i++ {
 		local = append(local, scanner.File{Name: fmt.Sprintf("file%d", i), Version: 1000})
@@ -221,7 +272,7 @@ func Benchmark10kReplace(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		m := files.NewSet()
+		m := files.NewSet("test", db)
 		m.ReplaceWithDelete(cid.LocalID, local)
 	}
 }
@@ -232,7 +283,13 @@ func Benchmark10kUpdateChg(b *testing.B) {
 		remote = append(remote, scanner.File{Name: fmt.Sprintf("file%d", i), Version: 1000})
 	}
 
-	m := files.NewSet()
+	os.RemoveAll("testdata/index.db")
+	db, err := bolt.Open("testdata/index.db", 0660)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+	m := files.NewSet("test", db)
 	m.Replace(1, remote)
 
 	var local []scanner.File
@@ -259,7 +316,13 @@ func Benchmark10kUpdateSme(b *testing.B) {
 		remote = append(remote, scanner.File{Name: fmt.Sprintf("file%d", i), Version: 1000})
 	}
 
-	m := files.NewSet()
+	os.RemoveAll("testdata/index.db")
+	db, err := bolt.Open("testdata/index.db", 0660)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+	m := files.NewSet("test", db)
 	m.Replace(1, remote)
 
 	var local []scanner.File
@@ -281,7 +344,14 @@ func Benchmark10kNeed2k(b *testing.B) {
 		remote = append(remote, scanner.File{Name: fmt.Sprintf("file%d", i), Version: 1000})
 	}
 
-	m := files.NewSet()
+	os.RemoveAll("testdata/index.db")
+	db, err := bolt.Open("testdata/index.db", 0660)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+
+	m := files.NewSet("test", db)
 	m.Replace(cid.LocalID+1, remote)
 
 	var local []scanner.File
@@ -309,7 +379,14 @@ func Benchmark10kHave(b *testing.B) {
 		remote = append(remote, scanner.File{Name: fmt.Sprintf("file%d", i), Version: 1000})
 	}
 
-	m := files.NewSet()
+	os.RemoveAll("testdata/index.db")
+	db, err := bolt.Open("testdata/index.db", 0660)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+
+	m := files.NewSet("test", db)
 	m.Replace(cid.LocalID+1, remote)
 
 	var local []scanner.File
@@ -337,7 +414,14 @@ func Benchmark10kGlobal(b *testing.B) {
 		remote = append(remote, scanner.File{Name: fmt.Sprintf("file%d", i), Version: 1000})
 	}
 
-	m := files.NewSet()
+	os.RemoveAll("testdata/index.db")
+	db, err := bolt.Open("testdata/index.db", 0660)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+
+	m := files.NewSet("test", db)
 	m.Replace(cid.LocalID+1, remote)
 
 	var local []scanner.File
@@ -360,7 +444,14 @@ func Benchmark10kGlobal(b *testing.B) {
 }
 
 func TestGlobalReset(t *testing.T) {
-	m := files.NewSet()
+	os.RemoveAll("testdata/index.db")
+	db, err := bolt.Open("testdata/index.db", 0660)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	m := files.NewSet("test", db)
 
 	local := []scanner.File{
 		scanner.File{Name: "a", Version: 1000},
@@ -380,7 +471,7 @@ func TestGlobalReset(t *testing.T) {
 	g := m.Global()
 	sort.Sort(fileList(g))
 
-	if !reflect.DeepEqual(g, local) {
+	if fmt.Sprint(g) != fmt.Sprint(local) {
 		t.Errorf("Global incorrect;\n%v !=\n%v", g, local)
 	}
 
@@ -390,13 +481,20 @@ func TestGlobalReset(t *testing.T) {
 	g = m.Global()
 	sort.Sort(fileList(g))
 
-	if !reflect.DeepEqual(g, local) {
+	if fmt.Sprint(g) != fmt.Sprint(local) {
 		t.Errorf("Global incorrect;\n%v !=\n%v", g, local)
 	}
 }
 
 func TestNeed(t *testing.T) {
-	m := files.NewSet()
+	os.RemoveAll("testdata/index.db")
+	db, err := bolt.Open("testdata/index.db", 0660)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	m := files.NewSet("test", db)
 
 	local := []scanner.File{
 		scanner.File{Name: "a", Version: 1000},
@@ -426,13 +524,20 @@ func TestNeed(t *testing.T) {
 	sort.Sort(fileList(need))
 	sort.Sort(fileList(shouldNeed))
 
-	if !reflect.DeepEqual(need, shouldNeed) {
+	if fmt.Sprint(need) != fmt.Sprint(shouldNeed) {
 		t.Errorf("Need incorrect;\n%v !=\n%v", need, shouldNeed)
 	}
 }
 
 func TestChanges(t *testing.T) {
-	m := files.NewSet()
+	os.RemoveAll("testdata/index.db")
+	db, err := bolt.Open("testdata/index.db", 0660)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	m := files.NewSet("test", db)
 
 	local1 := []scanner.File{
 		scanner.File{Name: "a", Version: 1000},

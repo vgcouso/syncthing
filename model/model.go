@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/boltdb/bolt"
 	"github.com/calmh/syncthing/cid"
 	"github.com/calmh/syncthing/config"
 	"github.com/calmh/syncthing/files"
@@ -42,6 +44,7 @@ const zeroEntrySize = 128
 type Model struct {
 	indexDir string
 	cfg      *config.Configuration
+	db       *bolt.DB
 
 	clientName    string
 	clientVersion string
@@ -78,9 +81,14 @@ var (
 // where it sends index information to connected peers and responds to requests
 // for file data without altering the local repository in any way.
 func NewModel(indexDir string, cfg *config.Configuration, clientName, clientVersion string) *Model {
+	db, err := bolt.Open(filepath.Join(indexDir, "files.db"), 0640)
+	if err != nil {
+		l.Fatalln(err)
+	}
 	m := &Model{
 		indexDir:      indexDir,
 		cfg:           cfg,
+		db:            db,
 		clientName:    clientName,
 		clientVersion: clientVersion,
 		repoCfgs:      make(map[string]config.RepositoryConfiguration),
@@ -632,7 +640,7 @@ func (m *Model) AddRepo(cfg config.RepositoryConfiguration) {
 
 	m.rmut.Lock()
 	m.repoCfgs[cfg.ID] = cfg
-	m.repoFiles[cfg.ID] = files.NewSet()
+	m.repoFiles[cfg.ID] = files.NewSet(cfg.ID, m.db)
 	m.suppressor[cfg.ID] = &suppressor{threshold: int64(m.cfg.Options.MaxChangeKbps)}
 
 	m.repoNodes[cfg.ID] = make([]string, len(cfg.Nodes))
