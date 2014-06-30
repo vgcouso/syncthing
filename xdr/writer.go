@@ -27,6 +27,13 @@ type Writer struct {
 	last time.Time
 }
 
+type AppendWriter []byte
+
+func (w *AppendWriter) Write(bs []byte) (int, error) {
+	*w = append(*w, bs...)
+	return len(bs), nil
+}
+
 func NewWriter(w io.Writer) *Writer {
 	return &Writer{
 		w: w,
@@ -104,10 +111,10 @@ func (w *Writer) WriteUint16(v uint16) (int, error) {
 		dl.Debugf("wr uint16=%d", v)
 	}
 
-	w.b[0] = byte(v >> 8)
-	w.b[1] = byte(v)
-	w.b[2] = 0
-	w.b[3] = 0
+	w.b[0] = 0
+	w.b[1] = 0
+	w.b[2] = byte(v >> 8)
+	w.b[3] = byte(v)
 
 	var l int
 	l, w.err = w.w.Write(w.b[:4])

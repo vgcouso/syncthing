@@ -12,6 +12,7 @@ import (
 	"io"
 	"sync"
 	"time"
+
 	"github.com/calmh/syncthing/xdr"
 )
 
@@ -47,19 +48,19 @@ var (
 
 type Model interface {
 	// An index was received from the peer node
-	Index(nodeID string, repo string, files []FileInfo)
+	Index(nodeID NodeID, repo string, files []FileInfo)
 	// An index update was received from the peer node
-	IndexUpdate(nodeID string, repo string, files []FileInfo)
+	IndexUpdate(nodeID NodeID, repo string, files []FileInfo)
 	// A request was made by the peer node
-	Request(nodeID string, repo string, name string, offset int64, size int) ([]byte, error)
+	Request(nodeID NodeID, repo string, name string, offset int64, size int) ([]byte, error)
 	// A cluster configuration message was received
-	ClusterConfig(nodeID string, config ClusterConfigMessage)
+	ClusterConfig(nodeID NodeID, config ClusterConfigMessage)
 	// The peer node closed the connection
-	Close(nodeID string, err error)
+	Close(nodeID NodeID, err error)
 }
 
 type Connection interface {
-	ID() string
+	ID() NodeID
 	Index(repo string, files []FileInfo)
 	Request(repo string, name string, offset int64, size int) ([]byte, error)
 	ClusterConfig(config ClusterConfigMessage)
@@ -67,7 +68,7 @@ type Connection interface {
 }
 
 type rawConnection struct {
-	id       string
+	id       NodeID
 	receiver Model
 
 	reader io.ReadCloser
@@ -84,6 +85,8 @@ type rawConnection struct {
 	awaiting  []chan asyncResult
 	imut      sync.Mutex
 
+	idxMut sync.Mutex // ensures serialization of Index calls
+
 	nextID chan int
 	outbox chan []encodable
 	closed chan struct{}
@@ -99,7 +102,7 @@ const (
 	pingIdleTime = 60 * time.Second
 )
 
-func NewConnection(nodeID string, reader io.Reader, writer io.Writer, receiver Model) Connection {
+func NewConnection(nodeID NodeID, reader io.Reader, writer io.Writer, receiver Model) Connection {
 	cr := &countingReader{Reader: reader}
 	cw := &countingWriter{Writer: writer}
 
@@ -136,12 +139,15 @@ func NewConnection(nodeID string, reader io.Reader, writer io.Writer, receiver M
 	return wireFormatConnection{&c}
 }
 
-func (c *rawConnection) ID() string {
+func (c *rawConnection) ID() NodeID {
 	return c.id
 }
 
 // Index writes the list of file information to the connected peer node
 func (c *rawConnection) Index(repo string, idx []FileInfo) {
+	c.idxMut.Lock()
+	defer c.idxMut.Unlock()
+
 	c.imut.Lock()
 	var msgType int
 	if c.indexSent[repo] == nil {
@@ -164,11 +170,11 @@ func (c *rawConnection) Index(repo string, idx []FileInfo) {
 		}
 		idx = diff
 	}
+	c.imut.Unlock()
 
 	if len(idx) > 0 {
 		c.send(header{0, -1, msgType}, IndexMessage{repo, idx})
 	}
-	c.imut.Unlock()
 }
 
 // Request returns the bytes for the specified block after fetching them from the connected peer.
@@ -289,7 +295,7 @@ func (c *rawConnection) readerLoop() (err error) {
 
 type incomingIndex struct {
 	update bool
-	id     string
+	id     NodeID
 	repo   string
 	files  []FileInfo
 }

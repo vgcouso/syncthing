@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"runtime/debug"
 	"runtime/pprof"
@@ -48,6 +49,14 @@ var (
 var l = logger.DefaultLogger
 
 func init() {
+	if Version != "unknown-dev" {
+		// If not a generic dev build, version string should come from git describe
+		exp := regexp.MustCompile(`^v\d+\.\d+\.\d+(-\d+-g[0-9a-f]+)?(-dirty)?$`)
+		if !exp.MatchString(Version) {
+			l.Fatalf("Invalid version string %q;\n\tdoes not match regexp %v", Version, exp)
+		}
+	}
+
 	stamp, _ := strconv.Atoi(BuildStamp)
 	BuildDate = time.Unix(int64(stamp), 0)
 
@@ -61,7 +70,7 @@ func init() {
 
 var (
 	cfg        config.Configuration
-	myID       string
+	myID       protocol.NodeID
 	confDir    string
 	logFlags   int = log.Ltime
 	rateBucket *ratelimit.Bucket
@@ -106,7 +115,9 @@ The following enviroment variables are interpreted by syncthing:
 
  STCPUPROFILE  Write CPU profile to the specified file.
 
- STGUIASSETS   Directory to load GUI assets from. Overrides compiled in assets.`
+ STGUIASSETS   Directory to load GUI assets from. Overrides compiled in assets.
+
+ STDEADLOCKTIMEOUT  Alter deadlock detection timeout (seconds; default 1200).`
 )
 
 func init() {
@@ -181,8 +192,8 @@ func main() {
 		l.FatalErr(err)
 	}
 
-	myID = certID(cert.Certificate[0])
-	l.SetPrefix(fmt.Sprintf("[%s] ", myID[:5]))
+	myID = protocol.NewNodeID(cert.Certificate[0])
+	l.SetPrefix(fmt.Sprintf("[%s] ", myID.String()[:5]))
 
 	l.Infoln(LongVersion)
 	l.Infoln("My ID:", myID)
@@ -263,7 +274,7 @@ func main() {
 	tlsCfg := &tls.Config{
 		Certificates:           []tls.Certificate{cert},
 		NextProtos:             []string{"bep/1.0"},
-		ServerName:             myID,
+		ServerName:             myID.String(),
 		ClientAuth:             tls.RequestClientCert,
 		SessionTicketsDisabled: true,
 		InsecureSkipVerify:     true,
@@ -567,7 +578,7 @@ func saveConfig() {
 	saveConfigCh <- struct{}{}
 }
 
-func listenConnect(myID string, m *model.Model, tlsCfg *tls.Config) {
+func listenConnect(myID protocol.NodeID, m *model.Model, tlsCfg *tls.Config) {
 	var conns = make(chan *tls.Conn)
 
 	// Listen
@@ -673,7 +684,7 @@ next:
 			conn.Close()
 			continue
 		}
-		remoteID := certID(certs[0].Raw)
+		remoteID := protocol.NewNodeID(certs[0].Raw)
 
 		if remoteID == myID {
 			l.Infof("Connected to myself (%s) - should not happen", remoteID)
@@ -694,6 +705,9 @@ next:
 					wr = &limitedWriter{conn, rateBucket}
 				}
 				protoConn := protocol.NewConnection(remoteID, conn, wr, m)
+
+				l.Infof("Connection to %s established at %v", remoteID, conn.RemoteAddr())
+
 				m.AddConnection(conn, protoConn)
 				continue next
 			}

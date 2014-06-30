@@ -1,7 +1,3 @@
-// Copyright (C) 2014 Jakob Borg and other contributors. All rights reserved.
-// Use of this source code is governed by an MIT-style license that can be
-// found in the LICENSE file.
-
 package protocol
 
 import (
@@ -17,10 +13,10 @@ func (o IndexMessage) EncodeXDR(w io.Writer) (int, error) {
 }
 
 func (o IndexMessage) MarshalXDR() []byte {
-	var buf bytes.Buffer
-	var xw = xdr.NewWriter(&buf)
+	var aw = make(xdr.AppendWriter, 0, 128)
+	var xw = xdr.NewWriter(&aw)
 	o.encodeXDR(xw)
-	return buf.Bytes()
+	return []byte(aw)
 }
 
 func (o IndexMessage) encodeXDR(xw *xdr.Writer) (int, error) {
@@ -44,8 +40,8 @@ func (o *IndexMessage) DecodeXDR(r io.Reader) error {
 }
 
 func (o *IndexMessage) UnmarshalXDR(bs []byte) error {
-	var buf = bytes.NewBuffer(bs)
-	var xr = xdr.NewReader(buf)
+	var br = bytes.NewReader(bs)
+	var xr = xdr.NewReader(br)
 	return o.decodeXDR(xr)
 }
 
@@ -68,10 +64,10 @@ func (o FileInfo) EncodeXDR(w io.Writer) (int, error) {
 }
 
 func (o FileInfo) MarshalXDR() []byte {
-	var buf bytes.Buffer
-	var xw = xdr.NewWriter(&buf)
+	var aw = make(xdr.AppendWriter, 0, 128)
+	var xw = xdr.NewWriter(&aw)
 	o.encodeXDR(xw)
-	return buf.Bytes()
+	return []byte(aw)
 }
 
 func (o FileInfo) encodeXDR(xw *xdr.Writer) (int, error) {
@@ -98,8 +94,8 @@ func (o *FileInfo) DecodeXDR(r io.Reader) error {
 }
 
 func (o *FileInfo) UnmarshalXDR(bs []byte) error {
-	var buf = bytes.NewBuffer(bs)
-	var xr = xdr.NewReader(buf)
+	var br = bytes.NewReader(bs)
+	var xr = xdr.NewReader(br)
 	return o.decodeXDR(xr)
 }
 
@@ -125,10 +121,10 @@ func (o BlockInfo) EncodeXDR(w io.Writer) (int, error) {
 }
 
 func (o BlockInfo) MarshalXDR() []byte {
-	var buf bytes.Buffer
-	var xw = xdr.NewWriter(&buf)
+	var aw = make(xdr.AppendWriter, 0, 128)
+	var xw = xdr.NewWriter(&aw)
 	o.encodeXDR(xw)
-	return buf.Bytes()
+	return []byte(aw)
 }
 
 func (o BlockInfo) encodeXDR(xw *xdr.Writer) (int, error) {
@@ -146,8 +142,8 @@ func (o *BlockInfo) DecodeXDR(r io.Reader) error {
 }
 
 func (o *BlockInfo) UnmarshalXDR(bs []byte) error {
-	var buf = bytes.NewBuffer(bs)
-	var xr = xdr.NewReader(buf)
+	var br = bytes.NewReader(bs)
+	var xr = xdr.NewReader(br)
 	return o.decodeXDR(xr)
 }
 
@@ -163,10 +159,10 @@ func (o RequestMessage) EncodeXDR(w io.Writer) (int, error) {
 }
 
 func (o RequestMessage) MarshalXDR() []byte {
-	var buf bytes.Buffer
-	var xw = xdr.NewWriter(&buf)
+	var aw = make(xdr.AppendWriter, 0, 128)
+	var xw = xdr.NewWriter(&aw)
 	o.encodeXDR(xw)
-	return buf.Bytes()
+	return []byte(aw)
 }
 
 func (o RequestMessage) encodeXDR(xw *xdr.Writer) (int, error) {
@@ -189,8 +185,8 @@ func (o *RequestMessage) DecodeXDR(r io.Reader) error {
 }
 
 func (o *RequestMessage) UnmarshalXDR(bs []byte) error {
-	var buf = bytes.NewBuffer(bs)
-	var xr = xdr.NewReader(buf)
+	var br = bytes.NewReader(bs)
+	var xr = xdr.NewReader(br)
 	return o.decodeXDR(xr)
 }
 
@@ -208,10 +204,10 @@ func (o ClusterConfigMessage) EncodeXDR(w io.Writer) (int, error) {
 }
 
 func (o ClusterConfigMessage) MarshalXDR() []byte {
-	var buf bytes.Buffer
-	var xw = xdr.NewWriter(&buf)
+	var aw = make(xdr.AppendWriter, 0, 128)
+	var xw = xdr.NewWriter(&aw)
 	o.encodeXDR(xw)
-	return buf.Bytes()
+	return []byte(aw)
 }
 
 func (o ClusterConfigMessage) encodeXDR(xw *xdr.Writer) (int, error) {
@@ -246,8 +242,8 @@ func (o *ClusterConfigMessage) DecodeXDR(r io.Reader) error {
 }
 
 func (o *ClusterConfigMessage) UnmarshalXDR(bs []byte) error {
-	var buf = bytes.NewBuffer(bs)
-	var xr = xdr.NewReader(buf)
+	var br = bytes.NewReader(bs)
+	var xr = xdr.NewReader(br)
 	return o.decodeXDR(xr)
 }
 
@@ -279,10 +275,10 @@ func (o Repository) EncodeXDR(w io.Writer) (int, error) {
 }
 
 func (o Repository) MarshalXDR() []byte {
-	var buf bytes.Buffer
-	var xw = xdr.NewWriter(&buf)
+	var aw = make(xdr.AppendWriter, 0, 128)
+	var xw = xdr.NewWriter(&aw)
 	o.encodeXDR(xw)
-	return buf.Bytes()
+	return []byte(aw)
 }
 
 func (o Repository) encodeXDR(xw *xdr.Writer) (int, error) {
@@ -306,8 +302,8 @@ func (o *Repository) DecodeXDR(r io.Reader) error {
 }
 
 func (o *Repository) UnmarshalXDR(bs []byte) error {
-	var buf = bytes.NewBuffer(bs)
-	var xr = xdr.NewReader(buf)
+	var br = bytes.NewReader(bs)
+	var xr = xdr.NewReader(br)
 	return o.decodeXDR(xr)
 }
 
@@ -330,18 +326,19 @@ func (o Node) EncodeXDR(w io.Writer) (int, error) {
 }
 
 func (o Node) MarshalXDR() []byte {
-	var buf bytes.Buffer
-	var xw = xdr.NewWriter(&buf)
+	var aw = make(xdr.AppendWriter, 0, 128)
+	var xw = xdr.NewWriter(&aw)
 	o.encodeXDR(xw)
-	return buf.Bytes()
+	return []byte(aw)
 }
 
 func (o Node) encodeXDR(xw *xdr.Writer) (int, error) {
-	if len(o.ID) > 64 {
+	if len(o.ID) > 32 {
 		return xw.Tot(), xdr.ErrElementSizeExceeded
 	}
-	xw.WriteString(o.ID)
+	xw.WriteBytes(o.ID)
 	xw.WriteUint32(o.Flags)
+	xw.WriteUint64(o.MaxVersion)
 	return xw.Tot(), xw.Error()
 }
 
@@ -351,14 +348,15 @@ func (o *Node) DecodeXDR(r io.Reader) error {
 }
 
 func (o *Node) UnmarshalXDR(bs []byte) error {
-	var buf = bytes.NewBuffer(bs)
-	var xr = xdr.NewReader(buf)
+	var br = bytes.NewReader(bs)
+	var xr = xdr.NewReader(br)
 	return o.decodeXDR(xr)
 }
 
 func (o *Node) decodeXDR(xr *xdr.Reader) error {
-	o.ID = xr.ReadStringMax(64)
+	o.ID = xr.ReadBytesMax(32)
 	o.Flags = xr.ReadUint32()
+	o.MaxVersion = xr.ReadUint64()
 	return xr.Error()
 }
 
@@ -368,10 +366,10 @@ func (o Option) EncodeXDR(w io.Writer) (int, error) {
 }
 
 func (o Option) MarshalXDR() []byte {
-	var buf bytes.Buffer
-	var xw = xdr.NewWriter(&buf)
+	var aw = make(xdr.AppendWriter, 0, 128)
+	var xw = xdr.NewWriter(&aw)
 	o.encodeXDR(xw)
-	return buf.Bytes()
+	return []byte(aw)
 }
 
 func (o Option) encodeXDR(xw *xdr.Writer) (int, error) {
@@ -392,8 +390,8 @@ func (o *Option) DecodeXDR(r io.Reader) error {
 }
 
 func (o *Option) UnmarshalXDR(bs []byte) error {
-	var buf = bytes.NewBuffer(bs)
-	var xr = xdr.NewReader(buf)
+	var br = bytes.NewReader(bs)
+	var xr = xdr.NewReader(br)
 	return o.decodeXDR(xr)
 }
 
