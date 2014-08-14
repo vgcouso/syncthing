@@ -2,6 +2,7 @@ package files
 
 import (
 	"bytes"
+	"encoding/hex"
 	"runtime"
 	"sort"
 	"sync"
@@ -524,13 +525,15 @@ func ldbWithGlobal(db *leveldb.DB, repo []byte, truncate bool, fn fileIterator) 
 			panic(err)
 		}
 		if len(vl.versions) == 0 {
-			l.Debugln(dbi.Key())
-			panic("no versions?")
+			l.Warnf("possible db corruption (global list 0): %v\n%s\n%s", err, hex.Dump(dbi.Key()), hex.Dump(dbi.Value()))
+			continue
 		}
+
 		fk := nodeKey(repo, vl.versions[0].node, globalKeyName(dbi.Key()))
 		bs, err := snap.Get(fk, nil)
 		if err != nil {
-			panic(err)
+			l.Warnf("possible db corruption (global list 1): %v\n%s\n%s", err, hex.Dump(dbi.Key()), hex.Dump(dbi.Value()))
+			continue
 		}
 
 		f, err := unmarshalTrunc(bs, truncate)
