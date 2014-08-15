@@ -3,9 +3,11 @@ package files
 import (
 	"bytes"
 	"encoding/hex"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"sync"
+	"code.google.com/p/go.text/unicode/norm"
 
 	"github.com/syncthing/syncthing/lamport"
 	"github.com/syncthing/syncthing/protocol"
@@ -103,7 +105,7 @@ func globalKey(repo, file []byte) []byte {
 }
 
 func nodeKeyName(key []byte) []byte {
-	return key[1+64+32:]
+	return []byte(normalizedFilename(string(key[1+64+32:])))
 }
 func nodeKeyRepo(key []byte) []byte {
 	repo := key[1 : 1+64]
@@ -115,7 +117,7 @@ func nodeKeyNode(key []byte) []byte {
 }
 
 func globalKeyName(key []byte) []byte {
-	return key[1+64:]
+	return []byte(normalizedFilename(string(key[1+64:])))
 }
 
 type deletionHandler func(db dbReader, batch dbWriter, repo, node, name []byte, dbi iterator.Iterator) uint64
@@ -158,7 +160,7 @@ func ldbGenericReplace(db *leveldb.DB, repo, node []byte, fs []protocol.FileInfo
 		}
 
 		if moreFs {
-			newName = []byte(fs[fsi].Name)
+			newName = []byte(normalizedFilename(fs[fsi].Name))
 		}
 
 		if moreDb {
@@ -232,6 +234,7 @@ func ldbReplaceWithDelete(db *leveldb.DB, repo, node []byte, fs []protocol.FileI
 		if err != nil {
 			panic(err)
 		}
+		tf.Name = normalizedFilename(tf.Name)
 		if !tf.IsDeleted() {
 			if debug {
 				l.Debugf("mark deleted; repo=%q node=%v name=%q", repo, protocol.NodeIDFromBytes(node), name)
@@ -264,7 +267,7 @@ func ldbUpdate(db *leveldb.DB, repo, node []byte, fs []protocol.FileInfo) uint64
 
 	var maxLocalVer uint64
 	for _, f := range fs {
-		name := []byte(f.Name)
+		name := []byte(normalizedFilename(f.Name))
 		fk := nodeKey(repo, node, name)
 		bs, err := snap.Get(fk, nil)
 		if err == leveldb.ErrNotFound {
@@ -499,6 +502,7 @@ func ldbGetGlobal(db *leveldb.DB, repo, file []byte) protocol.FileInfo {
 
 	var f protocol.FileInfo
 	err = f.UnmarshalXDR(bs)
+	f.Name = normalizedFilename(f.Name)
 	if err != nil {
 		panic(err)
 	}
@@ -537,6 +541,7 @@ func ldbWithGlobal(db *leveldb.DB, repo []byte, truncate bool, fn fileIterator) 
 		}
 
 		f, err := unmarshalTrunc(bs, truncate)
+		f.Name = normalizedFilename(f.Name)
 		if err != nil {
 			panic(err)
 		}
@@ -650,4 +655,8 @@ func unmarshalTrunc(bs []byte, truncate bool) (protocol.FileIntf, error) {
 		err := tf.UnmarshalXDR(bs)
 		return tf, err
 	}
+}
+
+func normalizedFilename(s string) string {
+	return norm.NFC.String(filepath.ToSlash(s))
 }

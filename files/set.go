@@ -126,15 +126,15 @@ func (s *Set) WithGlobalTruncated(fn fileIterator) {
 }
 
 func (s *Set) Get(node protocol.NodeID, file string) protocol.FileInfo {
-	return ldbGet(s.db, []byte(s.repo), node[:], []byte(file))
+	return ldbGet(s.db, []byte(s.repo), node[:], []byte(normalizedFilename(file)))
 }
 
 func (s *Set) GetGlobal(file string) protocol.FileInfo {
-	return ldbGetGlobal(s.db, []byte(s.repo), []byte(file))
+	return ldbGetGlobal(s.db, []byte(s.repo), []byte(normalizedFilesname(file)))
 }
 
 func (s *Set) Availability(file string) []protocol.NodeID {
-	return ldbAvailability(s.db, []byte(s.repo), []byte(file))
+	return ldbAvailability(s.db, []byte(s.repo), []byte(normalizedFilename(file)))
 }
 
 func (s *Set) LocalVersion(node protocol.NodeID) uint64 {
