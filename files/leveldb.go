@@ -105,6 +105,7 @@ func globalKey(repo, file []byte) []byte {
 }
 
 func nodeKeyName(key []byte) []byte {
+	// Normalizing here is required as a temporary measure for databases that already contain un-normalized data
 	return []byte(normalizedFilename(string(key[1+64+32:])))
 }
 func nodeKeyRepo(key []byte) []byte {
@@ -117,6 +118,7 @@ func nodeKeyNode(key []byte) []byte {
 }
 
 func globalKeyName(key []byte) []byte {
+	// Normalizing here is required as a temporary measure for databases that already contain un-normalized data
 	return []byte(normalizedFilename(string(key[1+64:])))
 }
 
@@ -502,10 +504,10 @@ func ldbGetGlobal(db *leveldb.DB, repo, file []byte) protocol.FileInfo {
 
 	var f protocol.FileInfo
 	err = f.UnmarshalXDR(bs)
-	f.Name = normalizedFilename(f.Name)
 	if err != nil {
 		panic(err)
 	}
+	f.Name = normalizedFilename(f.Name)
 	return f
 }
 
@@ -541,7 +543,6 @@ func ldbWithGlobal(db *leveldb.DB, repo []byte, truncate bool, fn fileIterator) 
 		}
 
 		f, err := unmarshalTrunc(bs, truncate)
-		f.Name = normalizedFilename(f.Name)
 		if err != nil {
 			panic(err)
 		}
@@ -649,14 +650,20 @@ func unmarshalTrunc(bs []byte, truncate bool) (protocol.FileIntf, error) {
 	if truncate {
 		var tf protocol.FileInfoTruncated
 		err := tf.UnmarshalXDR(bs)
+		tf.Name = localFilename(tf.Name)
 		return tf, err
 	} else {
 		var tf protocol.FileInfo
 		err := tf.UnmarshalXDR(bs)
+		tf.Name = localFilename(tf.Name)
 		return tf, err
 	}
 }
 
 func normalizedFilename(s string) string {
 	return norm.NFC.String(filepath.ToSlash(s))
+}
+
+func localFilename(s string) string {
+	return filepath.FromSlash(s)
 }

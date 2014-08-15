@@ -130,7 +130,7 @@ func (s *Set) Get(node protocol.NodeID, file string) protocol.FileInfo {
 }
 
 func (s *Set) GetGlobal(file string) protocol.FileInfo {
-	return ldbGetGlobal(s.db, []byte(s.repo), []byte(normalizedFilesname(file)))
+	return ldbGetGlobal(s.db, []byte(s.repo), []byte(normalizedFilename(file)))
 }
 
 func (s *Set) Availability(file string) []protocol.NodeID {
