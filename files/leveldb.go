@@ -2,12 +2,9 @@ package files
 
 import (
 	"bytes"
-	"encoding/hex"
-	"path/filepath"
 	"runtime"
 	"sort"
 	"sync"
-	"code.google.com/p/go.text/unicode/norm"
 
 	"github.com/syncthing/syncthing/lamport"
 	"github.com/syncthing/syncthing/protocol"
@@ -105,8 +102,7 @@ func globalKey(repo, file []byte) []byte {
 }
 
 func nodeKeyName(key []byte) []byte {
-	// Normalizing here is required as a temporary measure for databases that already contain un-normalized data
-	return []byte(normalizedFilename(string(key[1+64+32:])))
+	return key[1+64+32:]
 }
 func nodeKeyRepo(key []byte) []byte {
 	repo := key[1 : 1+64]
@@ -118,8 +114,7 @@ func nodeKeyNode(key []byte) []byte {
 }
 
 func globalKeyName(key []byte) []byte {
-	// Normalizing here is required as a temporary measure for databases that already contain un-normalized data
-	return []byte(normalizedFilename(string(key[1+64:])))
+	return key[1+64:]
 }
 
 type deletionHandler func(db dbReader, batch dbWriter, repo, node, name []byte, dbi iterator.Iterator) uint64
@@ -162,7 +157,7 @@ func ldbGenericReplace(db *leveldb.DB, repo, node []byte, fs []protocol.FileInfo
 		}
 
 		if moreFs {
-			newName = []byte(normalizedFilename(fs[fsi].Name))
+			newName = []byte(fs[fsi].Name)
 		}
 
 		if moreDb {
@@ -236,7 +231,6 @@ func ldbReplaceWithDelete(db *leveldb.DB, repo, node []byte, fs []protocol.FileI
 		if err != nil {
 			panic(err)
 		}
-		tf.Name = normalizedFilename(tf.Name)
 		if !tf.IsDeleted() {
 			if debug {
 				l.Debugf("mark deleted; repo=%q node=%v name=%q", repo, protocol.NodeIDFromBytes(node), name)
@@ -269,7 +263,7 @@ func ldbUpdate(db *leveldb.DB, repo, node []byte, fs []protocol.FileInfo) uint64
 
 	var maxLocalVer uint64
 	for _, f := range fs {
-		name := []byte(normalizedFilename(f.Name))
+		name := []byte(f.Name)
 		fk := nodeKey(repo, node, name)
 		bs, err := snap.Get(fk, nil)
 		if err == leveldb.ErrNotFound {
@@ -507,7 +501,6 @@ func ldbGetGlobal(db *leveldb.DB, repo, file []byte) protocol.FileInfo {
 	if err != nil {
 		panic(err)
 	}
-	f.Name = normalizedFilename(f.Name)
 	return f
 }
 
@@ -531,15 +524,13 @@ func ldbWithGlobal(db *leveldb.DB, repo []byte, truncate bool, fn fileIterator) 
 			panic(err)
 		}
 		if len(vl.versions) == 0 {
-			l.Warnf("possible db corruption (global list 0): %v\n%s\n%s", err, hex.Dump(dbi.Key()), hex.Dump(dbi.Value()))
-			continue
+			l.Debugln(dbi.Key())
+			panic("no versions?")
 		}
-
 		fk := nodeKey(repo, vl.versions[0].node, globalKeyName(dbi.Key()))
 		bs, err := snap.Get(fk, nil)
 		if err != nil {
-			l.Warnf("possible db corruption (global list 1): %v\n%s\n%s", err, hex.Dump(dbi.Key()), hex.Dump(dbi.Value()))
-			continue
+			panic(err)
 		}
 
 		f, err := unmarshalTrunc(bs, truncate)
@@ -650,20 +641,10 @@ func unmarshalTrunc(bs []byte, truncate bool) (protocol.FileIntf, error) {
 	if truncate {
 		var tf protocol.FileInfoTruncated
 		err := tf.UnmarshalXDR(bs)
-		tf.Name = localFilename(tf.Name)
 		return tf, err
 	} else {
 		var tf protocol.FileInfo
 		err := tf.UnmarshalXDR(bs)
-		tf.Name = localFilename(tf.Name)
 		return tf, err
 	}
-}
-
-func normalizedFilename(s string) string {
-	return norm.NFC.String(filepath.ToSlash(s))
-}
-
-func localFilename(s string) string {
-	return filepath.FromSlash(s)
 }
