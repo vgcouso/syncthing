@@ -373,6 +373,11 @@ func main() {
 	if err != nil {
 		l.Fatalln("Cannot open database:", err, "- Is another copy of Syncthing already running?")
 	}
+	go func() {
+		for _ = range time.Tick(10 * time.Second) {
+			l.Debugln(db.GetProperty("leveldb.blockpool"))
+		}
+	}()
 	m := model.NewModel(confDir, &cfg, myName, "syncthing", Version, db)
 
 nextRepo:
@@ -542,8 +547,10 @@ nextRepo:
 	events.Default.Log(events.StartupComplete, nil)
 	go generateEvents()
 
+	l.Debugln(db.GetProperty("leveldb.blockpool"))
 	<-stop
 
+	l.Debugln(db.GetProperty("leveldb.blockpool"))
 	l.Okln("Exiting")
 }
 
