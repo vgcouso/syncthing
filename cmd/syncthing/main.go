@@ -38,6 +38,7 @@ import (
 	"github.com/syncthing/syncthing/upnp"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/opt"
+	"github.com/thejerf/suture"
 )
 
 var (
@@ -384,6 +385,9 @@ func syncthingMain() {
 		}()
 	}
 
+	super := suture.New("Syncthing", suture.Spec{Log: func(s string) { l.Infoln(s) }})
+	super.ServeBackground()
+
 	// The TLS configuration is used for both the listening socket and outgoing
 	// connections.
 
@@ -490,10 +494,13 @@ nextRepo:
 			}
 
 			l.Infof("Starting web GUI on %s://%s/", proto, net.JoinHostPort(hostShow, strconv.Itoa(addr.Port)))
-			err := startGUI(guiCfg, os.Getenv("STGUIASSETS"), m)
-			if err != nil {
-				l.Fatalln("Cannot start GUI:", err)
+			gui := &guiService{
+				cfg:      cfg.GUI,
+				assetDir: os.Getenv("STGUIASSETS"),
+				model:    m,
 			}
+			super.Add(gui)
+
 			if !noBrowser && cfg.Options.StartBrowser && len(os.Getenv("STRESTART")) == 0 {
 				openURL(fmt.Sprintf("%s://%s:%d", proto, hostOpen, addr.Port))
 			}

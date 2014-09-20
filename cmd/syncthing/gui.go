@@ -50,7 +50,14 @@ func init() {
 	eventSub = events.NewBufferedSubscription(sub, 1000)
 }
 
-func startGUI(cfg config.GUIConfiguration, assetDir string, m *model.Model) error {
+type guiService struct {
+	cfg      config.GUIConfiguration
+	assetDir string
+	model    *model.Model
+	listener net.Listener
+}
+
+func (s *guiService) Serve() {
 	var err error
 
 	cert, err := loadCert(confDir, "https-")
@@ -61,56 +68,56 @@ func startGUI(cfg config.GUIConfiguration, assetDir string, m *model.Model) erro
 		cert, err = loadCert(confDir, "https-")
 	}
 	if err != nil {
-		return err
+		panic(err)
 	}
 	tlsCfg := &tls.Config{
 		Certificates: []tls.Certificate{cert},
 		ServerName:   "syncthing",
 	}
 
-	rawListener, err := net.Listen("tcp", cfg.Address)
+	s.listener, err = net.Listen("tcp", s.cfg.Address)
 	if err != nil {
-		return err
+		panic(err)
 	}
-	listener := &DowngradingListener{rawListener, tlsCfg}
+	listener := &DowngradingListener{s.listener, tlsCfg}
 
 	// The GET handlers
 	getRestMux := http.NewServeMux()
 	getRestMux.HandleFunc("/rest/ping", restPing)
-	getRestMux.HandleFunc("/rest/completion", withModel(m, restGetCompletion))
+	getRestMux.HandleFunc("/rest/completion", withModel(s.model, restGetCompletion))
 	getRestMux.HandleFunc("/rest/config", restGetConfig)
 	getRestMux.HandleFunc("/rest/config/sync", restGetConfigInSync)
-	getRestMux.HandleFunc("/rest/connections", withModel(m, restGetConnections))
+	getRestMux.HandleFunc("/rest/connections", withModel(s.model, restGetConnections))
 	getRestMux.HandleFunc("/rest/discovery", restGetDiscovery)
 	getRestMux.HandleFunc("/rest/errors", restGetErrors)
 	getRestMux.HandleFunc("/rest/events", restGetEvents)
 	getRestMux.HandleFunc("/rest/lang", restGetLang)
-	getRestMux.HandleFunc("/rest/model", withModel(m, restGetModel))
-	getRestMux.HandleFunc("/rest/model/version", withModel(m, restGetModelVersion))
-	getRestMux.HandleFunc("/rest/need", withModel(m, restGetNeed))
+	getRestMux.HandleFunc("/rest/model", withModel(s.model, restGetModel))
+	getRestMux.HandleFunc("/rest/model/version", withModel(s.model, restGetModelVersion))
+	getRestMux.HandleFunc("/rest/need", withModel(s.model, restGetNeed))
 	getRestMux.HandleFunc("/rest/nodeid", restGetNodeID)
-	getRestMux.HandleFunc("/rest/report", withModel(m, restGetReport))
+	getRestMux.HandleFunc("/rest/report", withModel(s.model, restGetReport))
 	getRestMux.HandleFunc("/rest/system", restGetSystem)
 	getRestMux.HandleFunc("/rest/upgrade", restGetUpgrade)
 	getRestMux.HandleFunc("/rest/version", restGetVersion)
-	getRestMux.HandleFunc("/rest/stats/node", withModel(m, restGetNodeStats))
+	getRestMux.HandleFunc("/rest/stats/node", withModel(s.model, restGetNodeStats))
 
 	// Debug endpoints, not for general use
-	getRestMux.HandleFunc("/rest/debug/peerCompletion", withModel(m, restGetPeerCompletion))
+	getRestMux.HandleFunc("/rest/debug/peerCompletion", withModel(s.model, restGetPeerCompletion))
 
 	// The POST handlers
 	postRestMux := http.NewServeMux()
 	postRestMux.HandleFunc("/rest/ping", restPing)
-	postRestMux.HandleFunc("/rest/config", withModel(m, restPostConfig))
+	postRestMux.HandleFunc("/rest/config", withModel(s.model, restPostConfig))
 	postRestMux.HandleFunc("/rest/discovery/hint", restPostDiscoveryHint)
 	postRestMux.HandleFunc("/rest/error", restPostError)
 	postRestMux.HandleFunc("/rest/error/clear", restClearErrors)
-	postRestMux.HandleFunc("/rest/model/override", withModel(m, restPostOverride))
+	postRestMux.HandleFunc("/rest/model/override", withModel(s.model, restPostOverride))
 	postRestMux.HandleFunc("/rest/reset", restPostReset)
 	postRestMux.HandleFunc("/rest/restart", restPostRestart)
 	postRestMux.HandleFunc("/rest/shutdown", restPostShutdown)
 	postRestMux.HandleFunc("/rest/upgrade", restPostUpgrade)
-	postRestMux.HandleFunc("/rest/scan", withModel(m, restPostScan))
+	postRestMux.HandleFunc("/rest/scan", withModel(s.model, restPostScan))
 
 	// A handler that splits requests between the two above and disables
 	// caching
@@ -122,32 +129,37 @@ func startGUI(cfg config.GUIConfiguration, assetDir string, m *model.Model) erro
 	mux.HandleFunc("/qr/", getQR)
 
 	// Serve compiled in assets unless an asset directory was set (for development)
-	mux.Handle("/", embeddedStatic(assetDir))
+	mux.Handle("/", embeddedStatic(s.assetDir))
 
 	// Wrap everything in CSRF protection. The /rest prefix should be
 	// protected, other requests will grant cookies.
-	handler := csrfMiddleware("/rest", cfg.APIKey, mux)
+	handler := csrfMiddleware("/rest", s.cfg.APIKey, mux)
 
 	// Add our version as a header to responses
 	handler = withVersionMiddleware(handler)
 
 	// Wrap everything in basic auth, if user/password is set.
-	if len(cfg.User) > 0 && len(cfg.Password) > 0 {
-		handler = basicAuthAndSessionMiddleware(cfg, handler)
+	if len(s.cfg.User) > 0 && len(s.cfg.Password) > 0 {
+		handler = basicAuthAndSessionMiddleware(s.cfg, handler)
 	}
 
 	// Redirect to HTTPS if we are supposed to
-	if cfg.UseTLS {
+	if s.cfg.UseTLS {
 		handler = redirectToHTTPSMiddleware(handler)
 	}
 
-	go func() {
-		err := http.Serve(listener, handler)
-		if err != nil {
-			panic(err)
-		}
-	}()
-	return nil
+	err = http.Serve(listener, handler)
+	if err != nil {
+		panic(err)
+	}
+}
+
+func (s *guiService) Stop() {
+	s.listener.Close()
+}
+
+func (s *guiService) String() string {
+	return "GUI@" + s.cfg.Address
 }
 
 func getPostHandler(get, post http.Handler) http.Handler {
