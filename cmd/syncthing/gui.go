@@ -112,6 +112,8 @@ func startGUI(cfg config.GUIConfiguration, assetDir string, m *model.Model) erro
 	postRestMux.HandleFunc("/rest/shutdown", restPostShutdown)
 	postRestMux.HandleFunc("/rest/upgrade", restPostUpgrade)
 	postRestMux.HandleFunc("/rest/scan", withModel(m, restPostScan))
+	postRestMux.HandleFunc("/rest/pause", withModel(m, restPostPause))
+	postRestMux.HandleFunc("/rest/resume", withModel(m, restPostResume))
 
 	// A handler that splits requests between the two above and disables
 	// caching
@@ -572,10 +574,19 @@ func restPostScan(m *model.Model, w http.ResponseWriter, r *http.Request) {
 	qs := r.URL.Query()
 	folder := qs.Get("folder")
 	sub := qs.Get("sub")
-	err := m.ScanFolderSub(folder, sub)
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-	}
+	m.RequestFolderScan(folder, sub)
+}
+
+func restPostPause(m *model.Model, w http.ResponseWriter, r *http.Request) {
+	qs := r.URL.Query()
+	folder := qs.Get("folder")
+	m.PauseFolder(folder)
+}
+
+func restPostResume(m *model.Model, w http.ResponseWriter, r *http.Request) {
+	qs := r.URL.Query()
+	folder := qs.Get("folder")
+	m.ResumeFolder(folder)
 }
 
 func getQR(w http.ResponseWriter, r *http.Request) {

@@ -94,6 +94,7 @@
                     <span translate>Idle</span>
                     ({{syncPercentage(folder.ID)}}%)
                   </span>
+                  <span translate ng-switch-when="paused">Paused</span>
                 </span>
               </h3>
             </div>
@@ -156,6 +157,8 @@
               <div class="panel-footer">
                 <button class="btn btn-sm btn-danger" ng-if="folder.ReadOnly && model[folder.ID].needFiles > 0" ng-click="override(folder.ID)" href=""><span class="glyphicon glyphicon-upload"></span>&emsp;<span translate>Override Changes</span></button>
                 <span class="pull-right">
+                  <button class="btn btn-sm btn-default" href="" ng-show="!folder.ReadOnly && folderStatus(folder.ID) == 'idle'" ng-click="pauseFolder(folder.ID)"><span class="glyphicon glyphicon-pause"></span>&emsp;<span translate>Pause</span></button>
+                  <button class="btn btn-sm btn-default" href="" ng-show="folderStatus(folder.ID) == 'paused'" ng-click="resumeFolder(folder.ID)"><span class="glyphicon glyphicon-play"></span>&emsp;<span translate>Resume</span></button>
                   <button class="btn btn-sm btn-default" href="" ng-show="folderStatus(folder.ID) == 'idle'" ng-click="rescanFolder(folder.ID)"><span class="glyphicon glyphicon-refresh"></span>&emsp;<span translate>Rescan</span></button>
                   <button class="btn btn-sm btn-default" href="" ng-click="editFolder(folder)"><span class="glyphicon glyphicon-pencil"></span>&emsp;<span translate>Edit</span></button>
                 </span>

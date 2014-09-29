@@ -39,6 +39,7 @@ const (
 	FolderScanning
 	FolderSyncing
 	FolderCleaning
+	FolderPaused
 )
 
 func (s folderState) String() string {
@@ -51,6 +52,8 @@ func (s folderState) String() string {
 		return "cleaning"
 	case FolderSyncing:
 		return "syncing"
+	case FolderPaused:
+		return "paused"
 	default:
 		return "unknown"
 	}
@@ -79,6 +82,7 @@ type Model struct {
 	deviceFolders  map[protocol.DeviceID][]string                         // deviceID -> folders
 	deviceStatRefs map[protocol.DeviceID]*stats.DeviceStatisticsReference // deviceID -> statsRef
 	folderIgnores  map[string]ignore.Patterns                             // folder -> list of ignore patterns
+	folderPullers  map[string]*Puller                                     // folder -> puller (if folder is in r/w mode)
 	fmut           sync.RWMutex                                           // protects the above
 
 	folderState        map[string]folderState // folder -> state
@@ -116,6 +120,7 @@ func NewModel(indexDir string, cfg *config.Configuration, deviceName, clientName
 		deviceFolders:      make(map[protocol.DeviceID][]string),
 		deviceStatRefs:     make(map[protocol.DeviceID]*stats.DeviceStatisticsReference),
 		folderIgnores:      make(map[string]ignore.Patterns),
+		folderPullers:      make(map[string]*Puller),
 		folderState:        make(map[string]folderState),
 		folderStateChanged: make(map[string]time.Time),
 		protoConn:          make(map[protocol.DeviceID]protocol.Connection),
@@ -142,18 +147,25 @@ func NewModel(indexDir string, cfg *config.Configuration, deviceName, clientName
 func (m *Model) StartFolderRW(folder string) {
 	m.fmut.Lock()
 	cfg, ok := m.folderCfgs[folder]
-	m.fmut.Unlock()
-
 	if !ok {
 		panic("cannot start nonexistent folder " + folder)
 	}
+	m.fmut.Unlock()
 
-	p := Puller{
+	p := &Puller{
 		folder:   folder,
 		dir:      cfg.Path,
 		scanIntv: time.Duration(cfg.RescanIntervalS) * time.Second,
 		model:    m,
 	}
+
+	m.fmut.Lock()
+	_, started := m.folderPullers[folder]
+	if started {
+		panic("cannot start started folder " + folder)
+	}
+	m.folderPullers[folder] = p
+	m.fmut.Unlock()
 
 	if len(cfg.Versioning.Type) > 0 {
 		factory, ok := versioner.Factories[cfg.Versioning.Type]
@@ -170,6 +182,13 @@ func (m *Model) StartFolderRW(folder string) {
 // read only mode the model will announce files to the cluster but not
 // pull in any external changes.
 func (m *Model) StartFolderRO(folder string) {
+	m.fmut.Lock()
+	_, started := m.folderPullers[folder]
+	if started {
+		panic("cannot start started folder " + folder)
+	}
+	m.fmut.Unlock()
+
 	intv := time.Duration(m.folderCfgs[folder].RescanIntervalS) * time.Second
 	go func() {
 		for {
@@ -982,6 +1001,19 @@ func (m *Model) CleanFolders() {
 	wg.Wait()
 }
 
+func (m *Model) RequestFolderScan(folder, sub string) {
+	m.fmut.RLock()
+	puller := m.folderPullers[folder]
+	m.fmut.RUnlock()
+	if puller != nil {
+		// Folder is in r/w, so we request a rescan from the puller
+		puller.Scan(sub)
+	} else {
+		// Folder is r/o, just do it
+		m.ScanFolderSub(folder, sub)
+	}
+}
+
 func (m *Model) ScanFolder(folder string) error {
 	return m.ScanFolderSub(folder, "")
 }
@@ -1255,4 +1287,22 @@ func (m *Model) availability(folder string, file string) []protocol.DeviceID {
 
 func (m *Model) String() string {
 	return fmt.Sprintf("model@%p", m)
+}
+
+func (m *Model) PauseFolder(folder string) {
+	m.fmut.Lock()
+	puller := m.folderPullers[folder]
+	m.fmut.Unlock()
+	if puller != nil {
+		puller.Pause()
+	}
+}
+
+func (m *Model) ResumeFolder(folder string) {
+	m.fmut.Lock()
+	puller := m.folderPullers[folder]
+	m.fmut.Unlock()
+	if puller != nil {
+		puller.Resume()
+	}
 }

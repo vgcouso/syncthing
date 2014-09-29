@@ -442,6 +442,9 @@ syncthing.controller('SyncthingCtrl', function ($scope, $http, $translate, $loca
         if (state == 'scanning') {
             return 'primary';
         }
+        if (state == 'paused') {
+            return 'default';
+        }
         return 'info';
     };
 
@@ -969,6 +972,14 @@ syncthing.controller('SyncthingCtrl', function ($scope, $http, $translate, $loca
 
     $scope.rescanFolder = function (folder) {
         $http.post(urlbase + "/scan?folder=" + encodeURIComponent(folder));
+    };
+
+    $scope.pauseFolder = function (folder) {
+        $http.post(urlbase + "/pause?folder=" + encodeURIComponent(folder));
+    };
+
+    $scope.resumeFolder = function (folder) {
+        $http.post(urlbase + "/resume?folder=" + encodeURIComponent(folder));
     };
 
     $scope.init();

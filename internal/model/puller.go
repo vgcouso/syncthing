@@ -56,7 +56,13 @@ type Puller struct {
 	scanIntv  time.Duration
 	model     *Model
 	stop      chan struct{}
+	scan      chan string
 	versioner versioner.Versioner
+	readOnly  bool
+
+	pullTimer    *time.Timer
+	scanTimer    *time.Timer
+	newIdleState chan folderState
 }
 
 // Serve will run scans and pulls. It will return when Stop()ed or on a
@@ -68,13 +74,15 @@ func (p *Puller) Serve() {
 	}
 
 	p.stop = make(chan struct{})
+	p.scan = make(chan string)
 
-	pullTimer := time.NewTimer(checkPullIntv)
-	scanTimer := time.NewTimer(p.scanIntv)
+	p.pullTimer = time.NewTimer(checkPullIntv)
+	p.scanTimer = time.NewTimer(p.scanIntv)
+	p.newIdleState = make(chan folderState, 1)
 
 	defer func() {
-		pullTimer.Stop()
-		scanTimer.Stop()
+		p.pullTimer.Stop()
+		p.scanTimer.Stop()
 		// TODO: Should there be an actual FolderStopped state?
 		p.model.setState(p.folder, FolderIdle)
 	}()
@@ -90,85 +98,149 @@ loop:
 		case <-p.stop:
 			return
 
+		case s := <-p.newIdleState:
+			p.selectIdleState(s)
+
 		// TODO: We could easily add a channel here for notifications from
 		// Index(), so that we immediately start a pull when new index
 		// information is available. Before that though, I'd like to build a
 		// repeatable benchmark of how long it takes to sync a change from
 		// device A to device B, so we have something to work against.
-		case <-pullTimer.C:
-			// RemoteLocalVersion() is a fast call, doesn't touch the database.
-			curVer := p.model.RemoteLocalVersion(p.folder)
-			if curVer == prevVer {
-				pullTimer.Reset(checkPullIntv)
-				continue
-			}
-
-			if debug {
-				l.Debugln(p, "pulling", prevVer, curVer)
-			}
-			p.model.setState(p.folder, FolderSyncing)
-			tries := 0
-			for {
-				tries++
-				changed := p.pullerIteration(copiersPerFolder, pullersPerFolder, finishersPerFolder)
-				if debug {
-					l.Debugln(p, "changed", changed)
-				}
-
-				if changed == 0 {
-					// No files were changed by the puller, so we are in
-					// sync. Remember the local version number and
-					// schedule a resync a little bit into the future.
-
-					if lv := p.model.RemoteLocalVersion(p.folder); lv < curVer {
-						// There's a corner case where the device we needed
-						// files from disconnected during the puller
-						// iteration. The files will have been removed from
-						// the index, so we've concluded that we don't need
-						// them, but at the same time we have the local
-						// version that includes those files in curVer. So we
-						// catch the case that localVersion might have
-						// decresed here.
-						l.Debugln(p, "adjusting curVer", lv)
-						curVer = lv
-					}
-					prevVer = curVer
-					pullTimer.Reset(nextPullIntv)
-					break
-				}
-
-				if tries > 10 {
-					// We've tried a bunch of times to get in sync, but
-					// we're not making it. Probably there are write
-					// errors preventing us. Flag this with a warning and
-					// wait a bit longer before retrying.
-					l.Warnf("Folder %q isn't making progress - check logs for possible root cause. Pausing puller for %v.", p.folder, pauseIntv)
-					pullTimer.Reset(pauseIntv)
-					break
-				}
-			}
-			p.model.setState(p.folder, FolderIdle)
+		case <-p.pullTimer.C:
+			prevVer = p.selectPull(prevVer)
 
 		// The reason for running the scanner from within the puller is that
 		// this is the easiest way to make sure we are not doing both at the
 		// same time.
-		case <-scanTimer.C:
-			if debug {
-				l.Debugln(p, "rescan")
-			}
-			p.model.setState(p.folder, FolderScanning)
-			if err := p.model.ScanFolder(p.folder); err != nil {
-				invalidateFolder(p.model.cfg, p.folder, err)
+		case <-p.scanTimer.C:
+			if err := p.selectScan(""); err != nil {
 				break loop
 			}
-			p.model.setState(p.folder, FolderIdle)
-			scanTimer.Reset(p.scanIntv)
+		case sub := <-p.scan:
+			if err := p.selectScan(sub); err != nil {
+				break loop
+			}
 		}
 	}
 }
 
+func (p *Puller) selectIdleState(state folderState) {
+	p.model.setState(p.folder, state)
+
+	switch state {
+	case FolderPaused:
+		p.pullTimer.Stop()
+		p.scanTimer.Stop()
+
+		// There's a small chance that the timers have already fired
+		// and we were going to pull or scan immediately after this.
+		// To prevent that, drain the channels.
+		select {
+		case <-p.pullTimer.C:
+		default:
+		}
+		select {
+		case <-p.scanTimer.C:
+		default:
+		}
+
+	case FolderIdle:
+		p.pullTimer.Reset(checkPullIntv)
+		p.scanTimer.Reset(p.scanIntv)
+
+	default:
+		panic("bizarre idle state " + state.String())
+	}
+
+	if debug {
+		l.Debugln(p, "new idle state", state)
+	}
+}
+
+func (p *Puller) selectPull(prevVer uint64) uint64 {
+	// RemoteLocalVersion() is a fast call, doesn't touch the database.
+	curVer := p.model.RemoteLocalVersion(p.folder)
+	if curVer == prevVer {
+		p.pullTimer.Reset(checkPullIntv)
+		return prevVer
+	}
+
+	if debug {
+		l.Debugln(p, "pulling", prevVer, curVer)
+	}
+	p.model.setState(p.folder, FolderSyncing)
+	tries := 0
+	for {
+		tries++
+		changed := p.pullerIteration(copiersPerFolder, pullersPerFolder, finishersPerFolder)
+		if debug {
+			l.Debugln(p, "changed", changed)
+		}
+
+		if changed == 0 {
+			// No files were changed by the puller, so we are in
+			// sync. Remember the local version number and
+			// schedule a resync a little bit into the future.
+
+			if lv := p.model.RemoteLocalVersion(p.folder); lv < curVer {
+				// There's a corner case where the device we needed
+				// files from disconnected during the puller
+				// iteration. The files will have been removed from
+				// the index, so we've concluded that we don't need
+				// them, but at the same time we have the local
+				// version that includes those files in curVer. So we
+				// catch the case that localVersion might have
+				// decresed here.
+				l.Debugln(p, "adjusting curVer", lv)
+				curVer = lv
+			}
+			prevVer = curVer
+			p.pullTimer.Reset(nextPullIntv)
+			break
+		}
+
+		if tries > 10 {
+			// We've tried a bunch of times to get in sync, but
+			// we're not making it. Probably there are write
+			// errors preventing us. Flag this with a warning and
+			// wait a bit longer before retrying.
+			l.Warnf("Folder %q isn't making progress - check logs for possible root cause. Pausing puller for %v.", p.folder, pauseIntv)
+			p.pullTimer.Reset(pauseIntv)
+			break
+		}
+	}
+	p.model.setState(p.folder, FolderIdle)
+	return prevVer
+}
+
+func (p *Puller) selectScan(subfolder string) error {
+	if debug {
+		l.Debugln(p, "rescan")
+	}
+	p.model.setState(p.folder, FolderScanning)
+	if err := p.model.ScanFolderSub(p.folder, subfolder); err != nil {
+		invalidateFolder(p.model.cfg, p.folder, err)
+		return err
+	}
+	p.model.setState(p.folder, FolderIdle)
+	p.scanTimer.Reset(p.scanIntv)
+	return nil
+}
+
 func (p *Puller) Stop() {
 	close(p.stop)
+}
+
+func (p *Puller) Pause() {
+	p.newIdleState <- FolderPaused
+}
+
+func (p *Puller) Scan(subfolder string) {
+	p.scan <- subfolder
+}
+
+func (p *Puller) Resume() {
+	p.newIdleState <- FolderIdle
 }
 
 func (p *Puller) String() string {
