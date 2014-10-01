@@ -450,44 +450,8 @@ func syncthingMain() {
 		}
 	}
 
-	m := model.NewModel(cfg, myName, "syncthing", Version, db)
-
-nextFolder:
-	for id, folder := range cfg.Folders() {
-		if folder.Invalid != "" {
-			continue
-		}
-		folder.Path, err = osutil.ExpandTilde(folder.Path)
-		if err != nil {
-			l.Fatalln("home:", err)
-		}
-		m.AddFolder(folder)
-
-		fi, err := os.Stat(folder.Path)
-		if m.CurrentLocalVersion(id) > 0 {
-			// Safety check. If the cached index contains files but the
-			// folder doesn't exist, we have a problem. We would assume
-			// that all files have been deleted which might not be the case,
-			// so mark it as invalid instead.
-			if err != nil || !fi.IsDir() {
-				l.Warnf("Stopping folder %q - path does not exist, but has files in index", folder.ID)
-				cfg.InvalidateFolder(id, "folder path missing")
-				continue nextFolder
-			}
-		} else if os.IsNotExist(err) {
-			// If we don't have any files in the index, and the directory
-			// doesn't exist, try creating it.
-			err = os.MkdirAll(folder.Path, 0700)
-		}
-
-		if err != nil {
-			// If there was another error or we could not create the
-			// path, the folder is invalid.
-			l.Warnf("Stopping folder %q - %v", err)
-			cfg.InvalidateFolder(id, err.Error())
-			continue nextFolder
-		}
-	}
+	m := model.NewModel(confDir, &cfg, myName, "syncthing", Version, db)
+	m.ApplyConfiguration(cfg)
 
 	// GUI
 
@@ -587,22 +551,6 @@ nextFolder:
 	// Routine to connect out to configured devices
 	discoverer = discovery(externalPort)
 	go listenConnect(myID, m, tlsCfg)
-
-	for _, folder := range cfg.Folders() {
-		if folder.Invalid != "" {
-			continue
-		}
-
-		// Routine to pull blocks from other devices to synchronize the local
-		// folder. Does not run when we are in read only (publish only) mode.
-		if folder.ReadOnly {
-			l.Okf("Ready to synchronize %s (read only; no external updates accepted)", folder.ID)
-			m.StartFolderRO(folder.ID)
-		} else {
-			l.Okf("Ready to synchronize %s (read-write)", folder.ID)
-			m.StartFolderRW(folder.ID)
-		}
-	}
 
 	if cpuProfile {
 		f, err := os.Create(fmt.Sprintf("cpu-%d.pprof", os.Getpid()))

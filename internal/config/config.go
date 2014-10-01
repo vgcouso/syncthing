@@ -47,6 +47,7 @@ type Configuration struct {
 type FolderConfiguration struct {
 	ID              string                      `xml:"id,attr"`
 	Path            string                      `xml:"path,attr"`
+	FullPath        string                      `xml:"-"` // Set at runtime to expand ~
 	Devices         []FolderDeviceConfiguration `xml:"device"`
 	ReadOnly        bool                        `xml:"ro,attr"`
 	RescanIntervalS int                         `xml:"rescanIntervalS,attr" default:"60"`
