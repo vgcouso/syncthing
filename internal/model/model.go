@@ -276,7 +276,7 @@ func (m *Model) checkFolderHealth(cfg config.FolderConfiguration) error {
 	}
 
 	fi, err := os.Stat(cfg.FullPath)
-	if m.CurrentLocalVersion(cfg.ID) > 0 {
+	if m.currentLocalVersion(cfg.ID) > 0 {
 		// Safety check. If the cached index contains files but the
 		// folder doesn't exist, we have a problem. We would assume
 		// that all files have been deleted which might not be the case,
@@ -1266,7 +1266,10 @@ func (m *Model) Override(folder string) {
 func (m *Model) CurrentLocalVersion(folder string) uint64 {
 	m.fmut.Lock()
 	defer m.fmut.Unlock()
+	return m.currentLocalVersion(folder)
+}
 
+func (m *Model) currentLocalVersion(folder string) uint64 {
 	fs, ok := m.folderFiles[folder]
 	if !ok {
 		panic("bug: LocalVersion called for nonexistent folder " + folder)
