@@ -150,24 +150,24 @@ func NewModel(cfg *config.ConfigWrapper, deviceName, clientName, clientVersion s
 	deadlockDetect(&m.smut, time.Duration(timeout)*time.Second)
 	deadlockDetect(&m.pmut, time.Duration(timeout)*time.Second)
 
-	m.applyConfiguration(cfg.Raw())
+	m.applyConfiguration()
 
 	return m
 }
 
 // Apply a new configuration. Adds, starts, stops and removes folders as
 // required.
-func (m *Model) applyConfiguration(cfg config.Configuration) {
+func (m *Model) applyConfiguration() {
 	m.fmut.Lock()
 	defer m.fmut.Unlock()
 
-	newFolders := cfg.FolderMap()
+	newFolders := m.cfg.Folders()
 	for id, fcfg := range m.folderCfgs {
 		if _, exists := newFolders[id]; !exists {
 			m.removeFolder(fcfg)
 		}
 	}
-	for _, fcfg := range cfg.Folders {
+	for _, fcfg := range newFolders {
 		if _, exists := m.folderCfgs[fcfg.ID]; exists {
 			m.updateFolder(fcfg)
 		} else {
