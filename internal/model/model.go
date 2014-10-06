@@ -149,12 +149,15 @@ func NewModel(cfg *config.ConfigWrapper, deviceName, clientName, clientVersion s
 	deadlockDetect(&m.fmut, time.Duration(timeout)*time.Second)
 	deadlockDetect(&m.smut, time.Duration(timeout)*time.Second)
 	deadlockDetect(&m.pmut, time.Duration(timeout)*time.Second)
+
+	m.applyConfiguration(cfg.Raw())
+
 	return m
 }
 
 // Apply a new configuration. Adds, starts, stops and removes folders as
 // required.
-func (m *Model) ApplyConfiguration(cfg config.Configuration) {
+func (m *Model) applyConfiguration(cfg config.Configuration) {
 	m.fmut.Lock()
 	defer m.fmut.Unlock()
 
@@ -222,7 +225,7 @@ func (m *Model) updateFolder(cfg config.FolderConfiguration) {
 // pulling needed files from peer devices.
 func (m *Model) startFolderRW(cfg config.FolderConfiguration) {
 	if err := m.checkFolderHealth(cfg); err != nil {
-		invalidateFolder(m.cfg, cfg.ID, err)
+		m.cfg.InvalidateFolder(cfg.ID, err.Error())
 		return
 	}
 
@@ -250,7 +253,7 @@ func (m *Model) startFolderRW(cfg config.FolderConfiguration) {
 // pull in any external changes.
 func (m *Model) startFolderRO(cfg config.FolderConfiguration) {
 	if err := m.checkFolderHealth(cfg); err != nil {
-		invalidateFolder(m.cfg, cfg.ID, err)
+		m.cfg.InvalidateFolder(cfg.ID, err.Error())
 		return
 	}
 

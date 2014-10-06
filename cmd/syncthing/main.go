@@ -450,8 +450,7 @@ func syncthingMain() {
 		}
 	}
 
-	m := model.NewModel(confDir, &cfg, myName, "syncthing", Version, db)
-	m.ApplyConfiguration(cfg)
+	m := model.NewModel(cfg, myName, "syncthing", Version, db)
 
 	// GUI
 
