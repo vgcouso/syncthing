@@ -25,6 +25,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -162,17 +163,25 @@ func (m *Model) applyConfiguration() {
 	defer m.fmut.Unlock()
 
 	newFolders := m.cfg.Folders()
-	for id, fcfg := range m.folderCfgs {
+
+	// Any no longer existing folders are removed
+	for id := range m.folderCfgs {
 		if _, exists := newFolders[id]; !exists {
-			m.removeFolder(fcfg)
+			m.removeFolder(id)
 		}
 	}
-	for _, fcfg := range newFolders {
-		if _, exists := m.folderCfgs[fcfg.ID]; exists {
-			m.updateFolder(fcfg)
-		} else {
-			m.addFolder(fcfg)
+
+	for id, newCfg := range newFolders {
+		oldCfg, exists := m.folderCfgs[id]
+		if reflect.DeepEqual(newCfg, oldCfg) {
+			// Identical config, no need to change anything
+			continue
 		}
+
+		if exists {
+			m.removeFolder(id)
+		}
+		m.addFolder(newCfg)
 	}
 }
 
@@ -192,32 +201,26 @@ func (m *Model) addFolder(cfg config.FolderConfiguration) {
 	}
 }
 
-func (m *Model) removeFolder(cfg config.FolderConfiguration) {
-	m.folderRunners[cfg.ID].Stop()
+func (m *Model) removeFolder(id string) {
+	m.folderRunners[id].Stop()
 
-	delete(m.folderCfgs, cfg.ID)
-	delete(m.folderFiles, cfg.ID)
-	delete(m.folderDevices, cfg.ID)
-	delete(m.folderIgnores, cfg.ID)
-	delete(m.folderRunners, cfg.ID)
-	delete(m.folderState, cfg.ID)
-	delete(m.folderStateChanged, cfg.ID)
+	delete(m.folderCfgs, id)
+	delete(m.folderFiles, id)
+	delete(m.folderDevices, id)
+	delete(m.folderIgnores, id)
+	delete(m.folderRunners, id)
+	delete(m.folderState, id)
+	delete(m.folderStateChanged, id)
 
 	for devID, folders := range m.deviceFolders {
 		newFolders := make([]string, 0, len(folders))
 		for _, folderID := range folders {
-			if folderID != cfg.ID {
+			if folderID != id {
 				newFolders = append(newFolders, folderID)
 			}
 		}
 		m.deviceFolders[devID] = newFolders
 	}
-}
-
-func (m *Model) updateFolder(cfg config.FolderConfiguration) {
-	// This could probably be optimized...
-	m.removeFolder(cfg)
-	m.addFolder(cfg)
 }
 
 // StartRW starts read/write processing on the current model. When in
