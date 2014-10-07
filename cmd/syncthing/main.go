@@ -532,6 +532,16 @@ nextFolder:
 	// Clear out old indexes for other devices. Otherwise we'll start up and
 	// start needing a bunch of files which are nowhere to be found. This
 	// needs to be changed when we correctly do persistent indexes.
+	go func() {
+		for {
+			err, count := files.CheckDatabase(db)
+			if err != nil {
+				l.Fatalln(err)
+			}
+			l.Infof("Database check OK, %d versions", count)
+			time.Sleep(5 * time.Second)
+		}
+	}()
 	for _, folderCfg := range cfg.Folders() {
 		if folderCfg.Invalid != "" {
 			continue
