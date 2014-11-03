@@ -38,6 +38,7 @@ import (
 
 	"code.google.com/p/go.crypto/bcrypt"
 	"github.com/calmh/logger"
+	"github.com/calmh/mdstp"
 	"github.com/juju/ratelimit"
 	"github.com/syncthing/syncthing/internal/config"
 	"github.com/syncthing/syncthing/internal/discover"
@@ -844,13 +845,28 @@ func shutdown() {
 func listenConnect(myID protocol.DeviceID, m *model.Model, tlsCfg *tls.Config) {
 	var conns = make(chan *tls.Conn)
 
-	// Listen
-	for _, addr := range cfg.Options().ListenAddress {
-		go listenTLS(conns, addr, tlsCfg)
+	// TODO: Handle multiple addresses or deprecate?
+	addr := cfg.Options().ListenAddress[0]
+
+	if debugNet {
+		l.Debugln("listening on", addr)
 	}
 
+	udpAddr, err := net.ResolveUDPAddr("udp", addr)
+	if err != nil {
+		l.Fatalln("listen (BEP):", err)
+	}
+
+	udpListener, err := net.ListenUDP("udp", udpAddr)
+	if err != nil {
+		l.Fatalln("listen (BEP):", err)
+	}
+	mux := mdstp.NewMux(udpListener)
+
+	go listenTLS(conns, mux, tlsCfg)
+
 	// Connect
-	go dialTLS(m, conns, tlsCfg)
+	go dialTLS(m, conns, mux, tlsCfg)
 
 next:
 	for conn := range conns {
@@ -932,20 +948,7 @@ next:
 	}
 }
 
-func listenTLS(conns chan *tls.Conn, addr string, tlsCfg *tls.Config) {
-	if debugNet {
-		l.Debugln("listening on", addr)
-	}
-
-	tcaddr, err := net.ResolveTCPAddr("tcp", addr)
-	if err != nil {
-		l.Fatalln("listen (BEP):", err)
-	}
-	listener, err := net.ListenTCP("tcp", tcaddr)
-	if err != nil {
-		l.Fatalln("listen (BEP):", err)
-	}
-
+func listenTLS(conns chan *tls.Conn, listener *mdstp.Mux, tlsCfg *tls.Config) {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -956,9 +959,6 @@ func listenTLS(conns chan *tls.Conn, addr string, tlsCfg *tls.Config) {
 		if debugNet {
 			l.Debugln("connect from", conn.RemoteAddr())
 		}
-
-		tcpConn := conn.(*net.TCPConn)
-		setTCPOptions(tcpConn)
 
 		tc := tls.Server(conn, tlsCfg)
 		err = tc.Handshake()
@@ -973,7 +973,7 @@ func listenTLS(conns chan *tls.Conn, addr string, tlsCfg *tls.Config) {
 
 }
 
-func dialTLS(m *model.Model, conns chan *tls.Conn, tlsCfg *tls.Config) {
+func dialTLS(m *model.Model, conns chan *tls.Conn, dialer *mdstp.Mux, tlsCfg *tls.Config) {
 	var delay time.Duration = 1 * time.Second
 	for {
 	nextDevice:
@@ -1014,23 +1014,13 @@ func dialTLS(m *model.Model, conns chan *tls.Conn, tlsCfg *tls.Config) {
 					l.Debugln("dial", deviceCfg.DeviceID, addr)
 				}
 
-				raddr, err := net.ResolveTCPAddr("tcp", addr)
+				conn, err := dialer.Dial("udt", addr)
 				if err != nil {
 					if debugNet {
 						l.Debugln(err)
 					}
 					continue
 				}
-
-				conn, err := net.DialTCP("tcp", nil, raddr)
-				if err != nil {
-					if debugNet {
-						l.Debugln(err)
-					}
-					continue
-				}
-
-				setTCPOptions(conn)
 
 				tc := tls.Client(conn, tlsCfg)
 				err = tc.Handshake()
@@ -1050,22 +1040,6 @@ func dialTLS(m *model.Model, conns chan *tls.Conn, tlsCfg *tls.Config) {
 		if maxD := time.Duration(cfg.Options().ReconnectIntervalS) * time.Second; delay > maxD {
 			delay = maxD
 		}
-	}
-}
-
-func setTCPOptions(conn *net.TCPConn) {
-	var err error
-	if err = conn.SetLinger(0); err != nil {
-		l.Infoln(err)
-	}
-	if err = conn.SetNoDelay(false); err != nil {
-		l.Infoln(err)
-	}
-	if err = conn.SetKeepAlivePeriod(60 * time.Second); err != nil {
-		l.Infoln(err)
-	}
-	if err = conn.SetKeepAlive(true); err != nil {
-		l.Infoln(err)
 	}
 }
 

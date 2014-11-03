@@ -43,6 +43,10 @@
 			"Rev": "f50d32b313bec2933a3e1049f7416a29f3413d29"
 		},
 		{
+			"ImportPath": "github.com/calmh/mdstp",
+			"Rev": "bd86c72964247572c42f6034e780cbb9166f154e"
+		},
+		{
 			"ImportPath": "github.com/calmh/osext",
 			"Rev": "9bf61584e5f1f172e8766ddc9022d9c401faaa5e"
 		},
