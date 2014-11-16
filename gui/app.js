@@ -116,6 +116,7 @@ syncthing.controller('SyncthingCtrl', function ($scope, $http, $translate, $loca
     $scope.seenError = '';
     $scope.upgradeInfo = null;
     $scope.stats = {};
+    $scope.progress = {};
 
     $http.get(urlbase + "/lang").success(function (langs) {
         // Find the first language in the list provided by the user's browser
@@ -270,6 +271,54 @@ syncthing.controller('SyncthingCtrl', function ($scope, $http, $translate, $loca
         });
     });
 
+    $scope.$on('DownloadProgress', function (event, arg) {
+        var stats = arg.data;
+        var progress = {}
+        for(var folder in stats){
+            refreshFolder(folder);
+            progress[folder] = {};
+            for(var file in stats[folder]){
+                var s = stats[folder][file];
+                var reused = Math.floor(100 * s.Reused / s.Total);
+                var copiedFromOrigin = Math.floor(100 * s.CopiedFromOrigin / s.Total);
+                var copiedFromElsewhere = Math.floor(100 * s.CopiedFromElsewhere / s.Total);
+                var pulled = Math.floor(100 * s.Pulled / s.Total);
+                var pulling = Math.floor(100 * s.Pulling / s.Total);
+                // We can do the following, because if s.Pulling > 0, than reused + copied + pulled < 100 because off rounding them down.
+                // We do this to show which files are currently being pulled
+                if (s.Pulling && pulling == 0) {
+                    pulling = 1;
+                }
+                progress[folder][file] = {
+                    Reused:              reused,
+                    CopiedFromOrigin:    copiedFromOrigin,
+                    CopiedFromElsewhere: copiedFromElsewhere,
+                    Pulled:              pulled,
+                    Pulling:             pulling,
+                    BytesTotal:          s.BytesTotal,
+                    BytesDone:           s.BytesDone,
+                };
+            }
+        }
+        for(var folder in $scope.progress){
+            var refresh = false;
+            if (!(folder in progress)) {
+                refresh = true;
+            } else {
+                for(file in $scope.progress[folder]){
+                    if (!(file in progress[folder])) {
+                        refresh = true;
+                    }
+                }
+            }
+            if (refresh) {
+                refreshNeed(folder);
+            }
+        }
+        $scope.progress = progress;
+        console.log("DownloadProgress", $scope.progress);
+    });
+
     var debouncedFuncs = {};
 
     function refreshFolder(folder) {
@@ -391,6 +440,18 @@ syncthing.controller('SyncthingCtrl', function ($scope, $http, $translate, $loca
 
         $http.get(urlbase + '/config/sync').success(function (data) {
             $scope.configInSync = data.configInSync;
+        });
+    }
+
+    function refreshNeed (folder) {
+        $scope.neededFolder = folder;
+        $scope.neededLoaded = false;
+        $http.get(urlbase + "/need?folder=" + encodeURIComponent(folder)).success(function (data) {
+            if ($scope.neededFolder == folder) {
+                console.log("refreshNeed", folder, data);
+                $scope.needed = data;
+                $scope.neededLoaded = true;
+            }
         });
     }
 
@@ -974,12 +1035,8 @@ syncthing.controller('SyncthingCtrl', function ($scope, $http, $translate, $loca
     };
 
     $scope.showNeed = function (folder) {
-        $scope.neededLoaded = false;
+        refreshNeed(folder);
         $('#needed').modal();
-        $http.get(urlbase + "/need?folder=" + encodeURIComponent(folder)).success(function (data) {
-            $scope.needed = data;
-            $scope.neededLoaded = true;
-        });
     };
 
     $scope.needAction = function (file) {
