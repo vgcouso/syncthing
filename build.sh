@@ -68,6 +68,25 @@ case "${1:-default}" in
 		go run build.go -goos windows -goarch 386 zip
 		;;
 
+	all-auto)
+		go run build.go -goos linux -goarch amd64 auto
+		go run build.go -goos linux -goarch 386 auto
+		go run build.go -goos linux -goarch armv5 auto
+		go run build.go -goos linux -goarch armv6 auto
+		go run build.go -goos linux -goarch armv7 auto
+
+		go run build.go -goos freebsd -goarch amd64 auto
+		go run build.go -goos freebsd -goarch 386 auto
+
+		go run build.go -goos openbsd -goarch amd64 auto
+		go run build.go -goos openbsd -goarch 386 auto
+
+		go run build.go -goos darwin -goarch amd64 auto
+
+		go run build.go -goos windows -goarch amd64 zip
+		go run build.go -goos windows -goarch 386 zip
+		;;
+
 	setup)
 		echo "Don't worry, just build."
 		;;
@@ -114,6 +133,14 @@ case "${1:-default}" in
 			-w /go/src/github.com/syncthing/syncthing \
 			syncthing/build:$DOCKERIMGV \
 			sh -c './build.sh clean && ./build.sh all && STTRACE=all ./build.sh test-cov'
+		;;
+
+	docker-all-auto)
+		docker run --rm -h syncthing-builder -u $(id -u) -t \
+			-v $(pwd):/go/src/github.com/syncthing/syncthing \
+			-w /go/src/github.com/syncthing/syncthing \
+			syncthing/build:$DOCKERIMGV \
+			sh -c './build.sh clean && ./build.sh all-auto'
 		;;
 
 	docker-test)

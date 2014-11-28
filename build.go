@@ -22,6 +22,8 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"crypto/sha1"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -139,6 +141,9 @@ func main() {
 		case "clean":
 			clean()
 
+		case "auto":
+			buildForUpgrade()
+
 		default:
 			log.Fatalf("Unknown command %q", cmd)
 		}
@@ -196,6 +201,51 @@ func build(pkg string, tags []string) {
 	args = append(args, pkg)
 	setBuildEnv()
 	runPrint("go", args...)
+}
+
+func buildForUpgrade() {
+	rmr("syncthing", "syncthing.exe")
+	build("./cmd/syncthing", nil)
+
+	ext := ""
+	if goos == "windows" {
+		ext = ".exe"
+	}
+
+	fd, err := os.Open("syncthing" + ext)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	out, err := os.Create(fmt.Sprintf("syncthing-" + buildArch() + ".gz"))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	gw := gzip.NewWriter(out)
+	hw := sha1.New()
+	mw := io.MultiWriter(gw, hw)
+	_, err = io.Copy(mw, fd)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fd.Close()
+	gw.Close()
+	out.Close()
+
+	hash := fmt.Sprintf("%x", hw.Sum(nil))
+
+	out, err = os.Create(fmt.Sprintf("syncthing-" + buildArch() + ".json"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	json.NewEncoder(out).Encode(map[string]string{
+		"os":      goos,
+		"arch":    goarch,
+		"sha1":    hash,
+		"version": version,
+	})
+	out.Close()
 }
 
 func buildTar() {
