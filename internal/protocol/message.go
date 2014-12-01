@@ -21,8 +21,10 @@ package protocol
 import "fmt"
 
 type IndexMessage struct {
-	Folder string // max:64
-	Files  []FileInfo
+	Folder  string // max:64
+	Files   []FileInfo
+	Flags   uint32
+	Options []Option // max:64
 }
 
 type FileInfo struct {
@@ -150,14 +152,18 @@ func (b BlockInfo) String() string {
 }
 
 type RequestMessage struct {
-	Folder string // max:64
-	Name   string // max:8192
-	Offset uint64
-	Size   uint32
+	Folder  string // max:64
+	Name    string // max:8192
+	Offset  uint64
+	Size    uint32
+	Hash    []byte // max:64
+	Flags   uint32
+	Options []Option // max:64
 }
 
 type ResponseMessage struct {
-	Data []byte
+	Data  []byte
+	Error uint32
 }
 
 type ClusterConfigMessage struct {
@@ -179,12 +185,15 @@ func (o *ClusterConfigMessage) GetOption(key string) string {
 type Folder struct {
 	ID      string // max:64
 	Devices []Device
+	Flags   uint32
+	Options []Option // max:64
 }
 
 type Device struct {
 	ID              []byte // max:32
-	Flags           uint32
 	MaxLocalVersion uint64
+	Flags           uint32
+	Options         []Option // max:64
 }
 
 type Option struct {
@@ -193,6 +202,7 @@ type Option struct {
 }
 
 type CloseMessage struct {
+	Code   uint32
 	Reason string // max:1024
 }
 

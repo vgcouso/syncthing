@@ -30,11 +30,21 @@ IndexMessage Structure:
 \               Zero or more FileInfo Structures                \
 /                                                               /
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                             Flags                             |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                       Number of Options                       |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+/                                                               /
+\                Zero or more Option Structures                 \
+/                                                               /
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
 
 struct IndexMessage {
 	string Folder<64>;
 	FileInfo Files<>;
+	unsigned int Flags;
+	Option Options<64>;
 }
 
 */
@@ -75,6 +85,17 @@ func (o IndexMessage) encodeXDR(xw *xdr.Writer) (int, error) {
 			return xw.Tot(), err
 		}
 	}
+	xw.WriteUint32(o.Flags)
+	if l := len(o.Options); l > 64 {
+		return xw.Tot(), xdr.ElementSizeExceeded("Options", l, 64)
+	}
+	xw.WriteUint32(uint32(len(o.Options)))
+	for i := range o.Options {
+		_, err := o.Options[i].encodeXDR(xw)
+		if err != nil {
+			return xw.Tot(), err
+		}
+	}
 	return xw.Tot(), xw.Error()
 }
 
@@ -95,6 +116,15 @@ func (o *IndexMessage) decodeXDR(xr *xdr.Reader) error {
 	o.Files = make([]FileInfo, _FilesSize)
 	for i := range o.Files {
 		(&o.Files[i]).decodeXDR(xr)
+	}
+	o.Flags = xr.ReadUint32()
+	_OptionsSize := int(xr.ReadUint32())
+	if _OptionsSize > 64 {
+		return xdr.ElementSizeExceeded("Options", _OptionsSize, 64)
+	}
+	o.Options = make([]Option, _OptionsSize)
+	for i := range o.Options {
+		(&o.Options[i]).decodeXDR(xr)
 	}
 	return xr.Error()
 }
@@ -412,6 +442,20 @@ RequestMessage Structure:
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 |                             Size                              |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                        Length of Hash                         |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+/                                                               /
+\                    Hash (variable length)                     \
+/                                                               /
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                             Flags                             |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                       Number of Options                       |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+/                                                               /
+\                Zero or more Option Structures                 \
+/                                                               /
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
 
 struct RequestMessage {
@@ -419,6 +463,9 @@ struct RequestMessage {
 	string Name<8192>;
 	unsigned hyper Offset;
 	unsigned int Size;
+	opaque Hash<64>;
+	unsigned int Flags;
+	Option Options<64>;
 }
 
 */
@@ -458,6 +505,21 @@ func (o RequestMessage) encodeXDR(xw *xdr.Writer) (int, error) {
 	xw.WriteString(o.Name)
 	xw.WriteUint64(o.Offset)
 	xw.WriteUint32(o.Size)
+	if l := len(o.Hash); l > 64 {
+		return xw.Tot(), xdr.ElementSizeExceeded("Hash", l, 64)
+	}
+	xw.WriteBytes(o.Hash)
+	xw.WriteUint32(o.Flags)
+	if l := len(o.Options); l > 64 {
+		return xw.Tot(), xdr.ElementSizeExceeded("Options", l, 64)
+	}
+	xw.WriteUint32(uint32(len(o.Options)))
+	for i := range o.Options {
+		_, err := o.Options[i].encodeXDR(xw)
+		if err != nil {
+			return xw.Tot(), err
+		}
+	}
 	return xw.Tot(), xw.Error()
 }
 
@@ -477,6 +539,16 @@ func (o *RequestMessage) decodeXDR(xr *xdr.Reader) error {
 	o.Name = xr.ReadStringMax(8192)
 	o.Offset = xr.ReadUint64()
 	o.Size = xr.ReadUint32()
+	o.Hash = xr.ReadBytesMax(64)
+	o.Flags = xr.ReadUint32()
+	_OptionsSize := int(xr.ReadUint32())
+	if _OptionsSize > 64 {
+		return xdr.ElementSizeExceeded("Options", _OptionsSize, 64)
+	}
+	o.Options = make([]Option, _OptionsSize)
+	for i := range o.Options {
+		(&o.Options[i]).decodeXDR(xr)
+	}
 	return xr.Error()
 }
 
@@ -493,10 +565,13 @@ ResponseMessage Structure:
 \                    Data (variable length)                     \
 /                                                               /
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                             Error                             |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
 
 struct ResponseMessage {
 	opaque Data<>;
+	unsigned int Error;
 }
 
 */
@@ -527,6 +602,7 @@ func (o ResponseMessage) AppendXDR(bs []byte) ([]byte, error) {
 
 func (o ResponseMessage) encodeXDR(xw *xdr.Writer) (int, error) {
 	xw.WriteBytes(o.Data)
+	xw.WriteUint32(o.Error)
 	return xw.Tot(), xw.Error()
 }
 
@@ -543,6 +619,7 @@ func (o *ResponseMessage) UnmarshalXDR(bs []byte) error {
 
 func (o *ResponseMessage) decodeXDR(xr *xdr.Reader) error {
 	o.Data = xr.ReadBytes()
+	o.Error = xr.ReadUint32()
 	return xr.Error()
 }
 
@@ -696,11 +773,21 @@ Folder Structure:
 \                Zero or more Device Structures                 \
 /                                                               /
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                             Flags                             |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                       Number of Options                       |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+/                                                               /
+\                Zero or more Option Structures                 \
+/                                                               /
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
 
 struct Folder {
 	string ID<64>;
 	Device Devices<>;
+	unsigned int Flags;
+	Option Options<64>;
 }
 
 */
@@ -741,6 +828,17 @@ func (o Folder) encodeXDR(xw *xdr.Writer) (int, error) {
 			return xw.Tot(), err
 		}
 	}
+	xw.WriteUint32(o.Flags)
+	if l := len(o.Options); l > 64 {
+		return xw.Tot(), xdr.ElementSizeExceeded("Options", l, 64)
+	}
+	xw.WriteUint32(uint32(len(o.Options)))
+	for i := range o.Options {
+		_, err := o.Options[i].encodeXDR(xw)
+		if err != nil {
+			return xw.Tot(), err
+		}
+	}
 	return xw.Tot(), xw.Error()
 }
 
@@ -762,6 +860,15 @@ func (o *Folder) decodeXDR(xr *xdr.Reader) error {
 	for i := range o.Devices {
 		(&o.Devices[i]).decodeXDR(xr)
 	}
+	o.Flags = xr.ReadUint32()
+	_OptionsSize := int(xr.ReadUint32())
+	if _OptionsSize > 64 {
+		return xdr.ElementSizeExceeded("Options", _OptionsSize, 64)
+	}
+	o.Options = make([]Option, _OptionsSize)
+	for i := range o.Options {
+		(&o.Options[i]).decodeXDR(xr)
+	}
 	return xr.Error()
 }
 
@@ -778,18 +885,25 @@ Device Structure:
 \                     ID (variable length)                      \
 /                                                               /
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                             Flags                             |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 |                                                               |
 +                  Max Local Version (64 bits)                  +
 |                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                             Flags                             |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                       Number of Options                       |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+/                                                               /
+\                Zero or more Option Structures                 \
+/                                                               /
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
 
 struct Device {
 	opaque ID<32>;
-	unsigned int Flags;
 	unsigned hyper MaxLocalVersion;
+	unsigned int Flags;
+	Option Options<64>;
 }
 
 */
@@ -823,8 +937,18 @@ func (o Device) encodeXDR(xw *xdr.Writer) (int, error) {
 		return xw.Tot(), xdr.ElementSizeExceeded("ID", l, 32)
 	}
 	xw.WriteBytes(o.ID)
-	xw.WriteUint32(o.Flags)
 	xw.WriteUint64(o.MaxLocalVersion)
+	xw.WriteUint32(o.Flags)
+	if l := len(o.Options); l > 64 {
+		return xw.Tot(), xdr.ElementSizeExceeded("Options", l, 64)
+	}
+	xw.WriteUint32(uint32(len(o.Options)))
+	for i := range o.Options {
+		_, err := o.Options[i].encodeXDR(xw)
+		if err != nil {
+			return xw.Tot(), err
+		}
+	}
 	return xw.Tot(), xw.Error()
 }
 
@@ -841,8 +965,16 @@ func (o *Device) UnmarshalXDR(bs []byte) error {
 
 func (o *Device) decodeXDR(xr *xdr.Reader) error {
 	o.ID = xr.ReadBytesMax(32)
-	o.Flags = xr.ReadUint32()
 	o.MaxLocalVersion = xr.ReadUint64()
+	o.Flags = xr.ReadUint32()
+	_OptionsSize := int(xr.ReadUint32())
+	if _OptionsSize > 64 {
+		return xdr.ElementSizeExceeded("Options", _OptionsSize, 64)
+	}
+	o.Options = make([]Option, _OptionsSize)
+	for i := range o.Options {
+		(&o.Options[i]).decodeXDR(xr)
+	}
 	return xr.Error()
 }
 
@@ -934,6 +1066,8 @@ CloseMessage Structure:
  0                   1                   2                   3
  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                             Code                              |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 |                       Length of Reason                        |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 /                                                               /
@@ -943,6 +1077,7 @@ CloseMessage Structure:
 
 
 struct CloseMessage {
+	unsigned int Code;
 	string Reason<1024>;
 }
 
@@ -973,6 +1108,7 @@ func (o CloseMessage) AppendXDR(bs []byte) ([]byte, error) {
 }
 
 func (o CloseMessage) encodeXDR(xw *xdr.Writer) (int, error) {
+	xw.WriteUint32(o.Code)
 	if l := len(o.Reason); l > 1024 {
 		return xw.Tot(), xdr.ElementSizeExceeded("Reason", l, 1024)
 	}
@@ -992,6 +1128,7 @@ func (o *CloseMessage) UnmarshalXDR(bs []byte) error {
 }
 
 func (o *CloseMessage) decodeXDR(xr *xdr.Reader) error {
+	o.Code = xr.ReadUint32()
 	o.Reason = xr.ReadStringMax(1024)
 	return xr.Error()
 }

@@ -183,7 +183,9 @@ func (c *rawConnection) Index(folder string, idx []FileInfo) error {
 	default:
 	}
 	c.idxMut.Lock()
-	c.send(-1, messageTypeIndex, IndexMessage{folder, idx})
+	c.send(-1, messageTypeIndex, IndexMessage{
+		Folder: folder, Files: idx,
+	})
 	c.idxMut.Unlock()
 	return nil
 }
@@ -196,7 +198,10 @@ func (c *rawConnection) IndexUpdate(folder string, idx []FileInfo) error {
 	default:
 	}
 	c.idxMut.Lock()
-	c.send(-1, messageTypeIndexUpdate, IndexMessage{folder, idx})
+	c.send(-1, messageTypeIndexUpdate, IndexMessage{
+		Folder: folder,
+		Files:  idx,
+	})
 	c.idxMut.Unlock()
 	return nil
 }
@@ -218,7 +223,12 @@ func (c *rawConnection) Request(folder string, name string, offset int64, size i
 	c.awaiting[id] = rc
 	c.awaitingMut.Unlock()
 
-	ok := c.send(id, messageTypeRequest, RequestMessage{folder, name, uint64(offset), uint32(size)})
+	ok := c.send(id, messageTypeRequest, RequestMessage{
+		Folder: folder,
+		Name:   name,
+		Offset: uint64(offset),
+		Size:   uint32(size),
+	})
 	if !ok {
 		return nil, ErrClosed
 	}
@@ -429,7 +439,9 @@ func (c *rawConnection) handleIndexUpdate(im IndexMessage) {
 func (c *rawConnection) handleRequest(msgID int, req RequestMessage) {
 	data, _ := c.receiver.Request(c.id, req.Folder, req.Name, int64(req.Offset), int(req.Size))
 
-	c.send(msgID, messageTypeResponse, ResponseMessage{data})
+	c.send(msgID, messageTypeResponse, ResponseMessage{
+		Data: data,
+	})
 }
 
 func (c *rawConnection) handleResponse(msgID int, resp ResponseMessage) {
