@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/syncthing/syncthing/internal/config"
 	"github.com/syncthing/syncthing/internal/ignore"
 	"github.com/syncthing/syncthing/internal/lamport"
 	"github.com/syncthing/syncthing/internal/protocol"
@@ -124,8 +125,7 @@ func (w *Walker) walkAndHashFiles(fchan chan protocol.FileInfo) filepath.WalkFun
 			return nil
 		}
 
-		if sn := filepath.Base(rn); sn == ".stignore" || sn == ".stfolder" ||
-			strings.HasPrefix(rn, ".stversions") || (w.Matcher != nil && w.Matcher.Match(rn)) {
+		if sn := filepath.Base(rn); sn == config.MarkerDir || (w.Matcher != nil && w.Matcher.Match(rn)) {
 			// An ignored file
 			if debug {
 				l.Debugln("ignored:", rn)

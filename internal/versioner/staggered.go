@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/syncthing/syncthing/internal/config"
 	"github.com/syncthing/syncthing/internal/osutil"
 )
 
@@ -82,13 +83,13 @@ func NewStaggered(folderID, folderPath string, params map[string]string) Version
 		cleanInterval = 3600 // Default: clean once per hour
 	}
 
-	// Use custom path if set, otherwise .stversions in folderPath
+	// Use custom path if set, otherwise default
 	var versionsDir string
 	if params["versionsPath"] == "" {
 		if debug {
-			l.Debugln("using default dir .stversions")
+			l.Debugln("using default dir")
 		}
-		versionsDir = filepath.Join(folderPath, ".stversions")
+		versionsDir = filepath.Join(folderPath, config.MarkerDir, config.VersionsDir)
 	} else {
 		if debug {
 			l.Debugln("using dir", params["versionsPath"])

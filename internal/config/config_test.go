@@ -65,13 +65,13 @@ func TestDefaultValues(t *testing.T) {
 
 func TestDeviceConfig(t *testing.T) {
 	for i := 1; i <= CurrentVersion; i++ {
-		os.Remove("testdata/.stfolder")
+		os.Remove("testdata/.syncthing")
 		wr, err := Load(fmt.Sprintf("testdata/v%d.xml", i), device1)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		_, err = os.Stat("testdata/.stfolder")
+		_, err = os.Stat("testdata/.syncthing")
 		if i < 6 && err != nil {
 			t.Fatal(err)
 		} else if i >= 6 && err == nil {

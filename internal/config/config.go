@@ -35,7 +35,15 @@ import (
 
 var l = logger.DefaultLogger
 
-const CurrentVersion = 7
+const (
+	CurrentVersion    = 7
+	MarkerDir         = ".syncthing"
+	IgnoreFile        = "ignores.txt" // in MarkerDir
+	VersionsDir       = "versions"    // in MarkerDir
+	LegacyMarkerFile  = ".stfolder"
+	LegacyIgnoreFile  = ".stignores"
+	LegacyVersionsDir = ".stversions"
+)
 
 type Configuration struct {
 	Version int                   `xml:"version,attr"`
@@ -71,26 +79,70 @@ type FolderConfiguration struct {
 	Deprecated_Nodes     []FolderDeviceConfiguration `xml:"node" json:"-"`
 }
 
+func (f *FolderConfiguration) MarkerPath() string {
+	return filepath.Join(f.Path, MarkerDir)
+}
+
+func (f *FolderConfiguration) IgnoresPath() string {
+	return filepath.Join(f.Path, IgnoreFile)
+}
+
+func (f *FolderConfiguration) VersionsPath() string {
+	return filepath.Join(f.Path, IgnoreFile)
+}
+
 func (f *FolderConfiguration) CreateMarker() error {
-	if !f.HasMarker() {
-		marker := filepath.Join(f.Path, ".stfolder")
-		fd, err := os.Create(marker)
-		if err != nil {
-			return err
+	marker := f.MarkerPath()
+	err := os.Mkdir(marker, 0755)
+	if err != nil {
+		if os.IsExist(err) {
+			// The marker already existed. Never mind the error.
+			return nil
 		}
-		fd.Close()
-		osutil.HideFile(marker)
+		// Every other error
+		return err
 	}
+	osutil.HideFile(marker)
 
 	return nil
 }
 
 func (f *FolderConfiguration) HasMarker() bool {
-	_, err := os.Stat(filepath.Join(f.Path, ".stfolder"))
+	fi, err := os.Stat(f.MarkerPath())
 	if err != nil {
 		return false
 	}
-	return true
+	return fi.IsDir()
+}
+
+func (f *FolderConfiguration) MigrateMarker() error {
+	legacyMarker := filepath.Join(f.Path, LegacyMarkerFile)
+
+	if _, err := os.Stat(legacyMarker); err == nil {
+		// There is a legacy marker file. Migrate to the new folder based
+		// setup.
+		err := os.Mkdir(f.MarkerPath(), 0755)
+		if err != nil {
+			return err
+		}
+
+		// Make the old marker file writeable (for Windows) and remove it. If
+		// this fails we are in a bad state, with both an old and new
+		// marker... But if we don't have write access to the folder, things
+		// are tricky anyway.
+		os.Chmod(legacyMarker, 0644)
+		os.Remove(legacyMarker)
+
+		// Move any legacy ignore file and versions dir. It doesn't matter if
+		// it doesn't exist yet.
+		legacyIgnores := filepath.Join(f.Path, LegacyIgnoreFile)
+		os.Rename(legacyIgnores, f.IgnoresPath())
+
+		legacyVersions := filepath.Join(f.Path, LegacyVersionsDir)
+		os.Rename(legacyVersions, f.VersionsPath())
+	}
+
+	return nil
 }
 
 func (f *FolderConfiguration) DeviceIDs() []protocol.DeviceID {

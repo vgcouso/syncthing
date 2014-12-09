@@ -31,6 +31,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/syncthing/syncthing/internal/config"
 	"github.com/syncthing/syncthing/internal/symlinks"
 )
 
@@ -335,7 +336,7 @@ func startWalker(dir string, res chan<- fileInfo, abort <-chan struct{}) {
 		if rn == "." || rn == ".stfolder" {
 			return nil
 		}
-		if rn == ".stversions" {
+		if rn == config.MarkerDir {
 			return filepath.SkipDir
 		}
 

@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"github.com/syncthing/syncthing/internal/config"
 	"github.com/syncthing/syncthing/internal/osutil"
 )
 
@@ -66,7 +67,7 @@ func (v Simple) Archive(filePath string) error {
 		return err
 	}
 
-	versionsDir := filepath.Join(v.folderPath, ".stversions")
+	versionsDir := filepath.Join(v.folderPath, config.MarkerDir, config.VersionsDir)
 	_, err = os.Stat(versionsDir)
 	if err != nil {
 		if os.IsNotExist(err) {

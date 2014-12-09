@@ -37,10 +37,13 @@ func TestSanityCheck(t *testing.T) {
 		Folders: []config.FolderConfiguration{fcfg},
 	})
 
-	for _, file := range []string{".stfolder", "testfolder", "testfolder/.stfolder"} {
+	os.RemoveAll("testdata/testfolder")
+	os.RemoveAll("testdata/.syncthing")
+
+	for _, file := range []string{".syncthing", "testfolder", "testfolder/.syncthing"} {
 		_, err := os.Stat("testdata/" + file)
 		if err == nil {
-			t.Error("Found unexpected file")
+			t.Error("Found unexpected file", file)
 		}
 	}
 
@@ -60,12 +63,12 @@ func TestSanityCheck(t *testing.T) {
 		t.Error(err)
 	}
 
-	_, err = os.Stat("testdata/testfolder/.stfolder")
+	_, err = os.Stat("testdata/testfolder/.syncthing")
 	if err != nil {
 		t.Error(err)
 	}
 
-	os.Remove("testdata/testfolder/.stfolder")
+	os.Remove("testdata/testfolder/.syncthing")
 	os.Remove("testdata/testfolder/")
 
 	// Case 2 - new folder, marker created
@@ -82,12 +85,12 @@ func TestSanityCheck(t *testing.T) {
 		t.Error("Unexpected error", cfg.Folders()["folder"].Invalid)
 	}
 
-	_, err = os.Stat("testdata/.stfolder")
+	_, err = os.Stat("testdata/.syncthing")
 	if err != nil {
 		t.Error(err)
 	}
 
-	os.Remove("testdata/.stfolder")
+	os.Remove("testdata/.syncthing")
 
 	// Case 3 - marker missing
 

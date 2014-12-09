@@ -672,6 +672,10 @@ nextFolder:
 		}
 		m.AddFolder(folder)
 
+		// If there is a legacy .stfolder filer, this folder should be
+		// migrated to the new folder based system.
+		folder.MigrateMarker()
+
 		fi, err := os.Stat(folder.Path)
 		if m.CurrentLocalVersion(id) > 0 {
 			// Safety check. If the cached index contains files but the
