@@ -39,10 +39,10 @@ fi
 
 copy=$(print-missing-copyright)
 if [[ ! -z $copy ]] ; then
-	echo ***
+	echo '***'
 	echo Files missing copyright notice:
 	echo $copy
-	echo ***
+	echo '***'
 	exit 1
 fi
 
