@@ -1,9 +1,26 @@
+// Copyright (C) 2014 The Syncthing Authors.
+//
+// This program is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+// more details.
+//
+// You should have received a copy of the GNU General Public License along
+// with this program. If not, see <http://www.gnu.org/licenses/>.
+
 package osutil
 
-// +build darwin linux freebsd openbsd solaris
+// Unix specific code, but builds on all platforms to get the tests executed.
 
 import (
+	"bytes"
 	"net"
+	"reflect"
 	"testing"
 )
 
@@ -55,6 +72,29 @@ func TestParseNetstatDefGW(t *testing.T) {
 		}
 		if !gw.Equal(tc.gw) {
 			t.Errorf("Incorrect gw %v != %v", gw, tc.gw)
+		}
+	}
+}
+
+var gwProcTestcases = []struct {
+	data []byte
+	gws  []net.IP
+}{
+	{[]byte(`Iface   Destination     Gateway         Flags   RefCnt  Use     Metric  Mask            MTU     Window  IRTT
+eth0    00000000        01C03EB2        0003    0       0       0       00000000        0       0       0
+eth0    00C03EB2        00000000        0001    0       0       0       00C0FFFF        0       0       0
+`), []net.IP{net.IP{178, 62, 192, 1}}},
+}
+
+func TestParseProcNetRouteDefGW(t *testing.T) {
+	for _, tc := range gwProcTestcases {
+		gws, err := parseProcNetRoute(bytes.NewReader(tc.data))
+		if err != nil {
+			t.Error(err)
+			continue
+		}
+		if !reflect.DeepEqual(gws, tc.gws) {
+			t.Errorf("Incorrect gw %v != %v", gws, tc.gws)
 		}
 	}
 }
