@@ -55,10 +55,11 @@ func parseProcNetRoute(r io.Reader) ([]net.IP, error) {
 	for s.Scan() {
 		line := s.Bytes()
 		fields := bytes.Fields(line)
-		if len(fields) < 3 {
+		if len(fields) < 8 {
 			continue
 		}
-		if bytes.Compare(fields[1], []byte("00000000")) == 0 {
+		if bytes.Compare(fields[1], []byte("00000000")) == 0 && // destination
+			bytes.Compare(fields[7], []byte("00000000")) == 0 { // mask
 			ipAsInt, err := strconv.ParseInt(string(fields[2]), 16, 32)
 			if err != nil {
 				return nil, err

@@ -84,6 +84,12 @@ var gwProcTestcases = []struct {
 eth0    00000000        01C03EB2        0003    0       0       0       00000000        0       0       0
 eth0    00C03EB2        00000000        0001    0       0       0       00C0FFFF        0       0       0
 `), []net.IP{net.IP{178, 62, 192, 1}}},
+	{[]byte(`Iface   Destination     Gateway         Flags   RefCnt  Use     Metric  Mask            MTU     Window  IRTT
+eth0    00000000        01C03EB2        0003    0       0       0       00000000        0       0       0
+eth0    00000000        01C03EB3        0003    0       0       0       00000000        0       0       0
+eth0    00000000        01C03EB4        0003    0       0       0       00030000        0       0       0
+eth0    00C03EB2        00000000        0001    0       0       0       00C0FFFF        0       0       0
+`), []net.IP{net.IP{178, 62, 192, 1}, net.IP{179, 62, 192, 1}}},
 }
 
 func TestParseProcNetRouteDefGW(t *testing.T) {
