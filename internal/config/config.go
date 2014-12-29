@@ -84,11 +84,11 @@ func (f *FolderConfiguration) MarkerPath() string {
 }
 
 func (f *FolderConfiguration) IgnoresPath() string {
-	return filepath.Join(f.Path, IgnoreFile)
+	return filepath.Join(f.MarkerPath(), IgnoreFile)
 }
 
 func (f *FolderConfiguration) VersionsPath() string {
-	return filepath.Join(f.Path, IgnoreFile)
+	return filepath.Join(f.MarkerPath(), VersionsDir)
 }
 
 func (f *FolderConfiguration) CreateMarker() error {
