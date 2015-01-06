@@ -431,7 +431,7 @@ func (p *Puller) handleDir(file protocol.FileInfo) {
 
 	if p.ignorePerms {
 		p.model.updateLocal(p.folder, file)
-	} else if err := os.Chmod(realName, mode); err == nil {
+	} else if err := osutil.Chmod(realName, mode); err == nil {
 		p.model.updateLocal(p.folder, file)
 	} else {
 		l.Infof("Puller (folder %q, dir %q): %v", p.folder, file.Name, err)
@@ -567,7 +567,7 @@ func (p *Puller) handleFile(file protocol.FileInfo, copyChan chan<- copyBlocksSt
 func (p *Puller) shortcutFile(file protocol.FileInfo) {
 	realName := filepath.Join(p.dir, file.Name)
 	if !p.ignorePerms {
-		err := os.Chmod(realName, os.FileMode(file.Flags&0777))
+		err := osutil.Chmod(realName, os.FileMode(file.Flags&0777))
 		if err != nil {
 			l.Infof("Puller (folder %q, file %q): shortcut: %v", p.folder, file.Name, err)
 			return
@@ -776,7 +776,7 @@ func (p *Puller) performFinish(state *sharedPullerState) {
 	var err error
 	// Set the correct permission bits on the new file
 	if !p.ignorePerms {
-		err = os.Chmod(state.tempName, os.FileMode(state.file.Flags&0777))
+		err = osutil.Chmod(state.tempName, os.FileMode(state.file.Flags&0777))
 		if err != nil {
 			l.Warnln("puller: final:", err)
 			return

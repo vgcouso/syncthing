@@ -33,6 +33,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/syncthing/syncthing/internal/osutil"
 )
 
 // Returns the latest release, including prereleases or not depending on the argument
@@ -314,7 +316,7 @@ func writeBinary(dir string, inFile io.Reader) (filename, md5sum string, err err
 		return "", "", err
 	}
 
-	err = os.Chmod(outFile.Name(), os.FileMode(0755))
+	err = osutil.Chmod(outFile.Name(), os.FileMode(0755))
 	if err != nil {
 		os.Remove(outFile.Name())
 		return "", "", err

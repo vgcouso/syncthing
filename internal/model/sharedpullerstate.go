@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/syncthing/syncthing/internal/osutil"
 	"github.com/syncthing/syncthing/internal/protocol"
 )
 
@@ -95,10 +96,10 @@ func (s *sharedPullerState) tempFile() (io.WriterAt, error) {
 		s.earlyCloseLocked("dst stat dir", err)
 		return nil, err
 	} else if info.Mode()&0200 == 0 {
-		err := os.Chmod(dir, 0755)
+		err := osutil.Chmod(dir, 0755)
 		if err == nil {
 			defer func() {
-				err := os.Chmod(dir, info.Mode().Perm())
+				err := osutil.Chmod(dir, info.Mode().Perm())
 				if err != nil {
 					panic(err)
 				}
@@ -116,7 +117,7 @@ func (s *sharedPullerState) tempFile() (io.WriterAt, error) {
 		// moved it to it's final name. This leaves us with a read only temp
 		// file that we're going to try to reuse. To handle that, we need to
 		// make sure we have write permissions on the file before opening it.
-		err := os.Chmod(s.tempName, 0644)
+		err := osutil.Chmod(s.tempName, 0644)
 		if err != nil {
 			s.earlyCloseLocked("dst create chmod", err)
 			return nil, err

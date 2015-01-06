@@ -90,7 +90,7 @@ func generateFiles(dir string, files, maxexp int, srcname string) error {
 			return err
 		}
 
-		err = os.Chmod(p1, os.FileMode(rand.Intn(0777)|0400))
+		err = Chmod(p1, os.FileMode(rand.Intn(0777)|0400))
 		if err != nil {
 			return err
 		}
@@ -136,7 +136,7 @@ func alterFiles(dir string) error {
 		case r < 0.2 && info.Mode().IsRegular():
 			if info.Mode()&0200 != 0200 {
 				// Not owner writable. Fix.
-				err = os.Chmod(path, 0644)
+				err = Chmod(path, 0644)
 				if err != nil {
 					return err
 				}
@@ -211,7 +211,7 @@ func removeAll(dirs ...string) error {
 				return err
 			}
 			if info.Mode()&0700 != 0700 {
-				os.Chmod(path, 0777)
+				Chmod(path, 0777)
 			}
 			return nil
 		})

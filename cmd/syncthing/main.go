@@ -1151,7 +1151,7 @@ func ensureDir(dir string, mode int) {
 			l.Fatalln(err)
 		}
 	} else if mode >= 0 && err == nil && int(fi.Mode()&0777) != mode {
-		err := os.Chmod(dir, os.FileMode(mode))
+		err := osutil.Chmod(dir, os.FileMode(mode))
 		// This can fail on crappy filesystems, nothing we can do about it.
 		if err != nil {
 			l.Warnln(err)

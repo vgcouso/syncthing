@@ -19,6 +19,7 @@ package osutil
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -44,13 +45,13 @@ func Rename(from, to string) error {
 	// Make sure the destination directory is writeable
 	toDir := filepath.Dir(to)
 	if info, err := os.Stat(toDir); err == nil {
-		os.Chmod(toDir, 0777)
-		defer os.Chmod(toDir, info.Mode())
+		Chmod(toDir, 0777)
+		defer Chmod(toDir, info.Mode())
 	}
 
 	// On Windows, make sure the destination file is writeable (or we can't delete it)
 	if runtime.GOOS == "windows" {
-		os.Chmod(to, 0666)
+		Chmod(to, 0666)
 		err := os.Remove(to)
 		if err != nil && !os.IsNotExist(err) {
 			return err
@@ -70,10 +71,10 @@ func InWritableDir(fn func(string) error, path string) error {
 		// A non-writeable directory (for this user; we assume that's the
 		// relevant part). Temporarily change the mode so we can delete the
 		// file or directory inside it.
-		err = os.Chmod(dir, 0755)
+		err = Chmod(dir, 0755)
 		if err == nil {
 			defer func() {
-				err = os.Chmod(dir, info.Mode())
+				err = Chmod(dir, info.Mode())
 				if err != nil {
 					// We managed to change the permission bits like a
 					// millisecond ago, so it'd be bizarre if we couldn't
@@ -122,4 +123,14 @@ func getHomeDir() (string, error) {
 	}
 
 	return home, nil
+}
+
+var debugChmod = strings.Contains(os.Getenv("STTRACE"), "chmod")
+
+func Chmod(name string, mode os.FileMode) error {
+	if debugChmod {
+		l := log.New(os.Stdout, "", log.LstdFlags|log.Lshortfile)
+		l.Output(2, fmt.Sprintf("chmod(%q, %04o)", name, mode))
+	}
+	return os.Chmod(name, mode)
 }
