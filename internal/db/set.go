@@ -35,6 +35,7 @@ type FileSet struct {
 	mutex        sync.Mutex
 	folder       string
 	db           *leveldb.DB
+	fileDB       *fileDB
 	blockmap     *BlockMap
 }
 
@@ -55,10 +56,16 @@ type FileIntf interface {
 type Iterator func(f FileIntf) bool
 
 func NewFileSet(folder string, db *leveldb.DB) *FileSet {
+	fdb, err := newFileDB(folder, "/tmp/test.db")
+	if err != nil {
+		panic(err)
+	}
+
 	var s = FileSet{
 		localVersion: make(map[protocol.DeviceID]uint64),
 		folder:       folder,
 		db:           db,
+		fileDB:       fdb,
 		blockmap:     NewBlockMap(db, folder),
 	}
 
@@ -88,6 +95,7 @@ func (s *FileSet) Replace(device protocol.DeviceID, fs []protocol.FileInfo) {
 	normalizeFilenames(fs)
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+
 	s.localVersion[device] = ldbReplace(s.db, []byte(s.folder), device[:], fs)
 	if len(fs) == 0 {
 		// Reset the local version if all files were removed.
@@ -96,6 +104,13 @@ func (s *FileSet) Replace(device protocol.DeviceID, fs []protocol.FileInfo) {
 	if device == protocol.LocalDeviceID {
 		s.blockmap.Drop()
 		s.blockmap.Add(fs)
+	}
+
+	// ---
+
+	err := s.fileDB.replace(device, fs)
+	if err != nil {
+		panic(err)
 	}
 }
 
@@ -112,6 +127,13 @@ func (s *FileSet) ReplaceWithDelete(device protocol.DeviceID, fs []protocol.File
 	if device == protocol.LocalDeviceID {
 		s.blockmap.Drop()
 		s.blockmap.Add(fs)
+	}
+
+	// ---
+
+	err := s.fileDB.updateWithDelete(device, fs)
+	if err != nil {
+		panic(err)
 	}
 }
 
@@ -137,6 +159,13 @@ func (s *FileSet) Update(device protocol.DeviceID, fs []protocol.FileInfo) {
 	}
 	if lv := ldbUpdate(s.db, []byte(s.folder), device[:], fs); lv > s.localVersion[device] {
 		s.localVersion[device] = lv
+	}
+
+	// ---
+
+	err := s.fileDB.update(device, fs)
+	if err != nil {
+		panic(err)
 	}
 }
 
