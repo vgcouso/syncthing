@@ -23,15 +23,15 @@ var setup = []string{
 var schema = []string{
 	`CREATE TABLE IF NOT EXISTS File (
 		ID INTEGER PRIMARY KEY AUTOINCREMENT,
-		Node STRING NOT NULL,
-		Repo STRING NOT NULL,
+		Device STRING NOT NULL,
+		Folder STRING NOT NULL,
 		Name STRING NOT NULL,
 		Flags INTEGER NOT NULL,
 		Modified INTEGER NOT NULL,
 		Version INTEGER NOT NULL,
 		Updated BOOLEAN NOT NULL
 	)`,
-	`CREATE UNIQUE INDEX IF NOT EXISTS NodeRepoNameIdx ON File (Node, Repo, Name)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS DeviceFolderNameIdx ON File (Device, Folder, Name)`,
 	`CREATE TABLE IF NOT EXISTS Block (
 		Hash BLOB NOT NULL,
 		FileID INTEGER NOT NULL REFERENCES File(ID) ON DELETE CASCADE,
@@ -43,23 +43,23 @@ var schema = []string{
 }
 
 var preparedStmts = [][2]string{
-	{"selectFileID", "SELECT ID, Version FROM File WHERE Node==? AND Repo==? AND Name==?"},
-	{"selectFileAll", "SELECT ID, Name, Flags, Modified, Version FROM File WHERE Node==? AND Repo==? AND Name==?"},
+	{"selectFileID", "SELECT ID, Version FROM File WHERE Device==? AND Folder==? AND Name==?"},
+	{"selectFileAll", "SELECT ID, Name, Flags, Modified, Version FROM File WHERE Device==? AND Folder==? AND Name==?"},
 	{"selectFileAllID", "SELECT ID, Name, Flags, Modified, Version FROM File WHERE ID==?"},
 	{"selectFileAllVersion", "SELECT ID, Name, Flags, Modified, Version FROM File WHERE Name==? AND Version==?"},
 	{"deleteFile", "DELETE FROM File WHERE ID==?"},
 	{"updateFile", "UPDATE File SET Updated=1 WHERE ID==?"},
 	{"deleteBlock", "DELETE FROM Block WHERE FileID==?"},
-	{"insertFile", "INSERT INTO File (Node, Repo, Name, Flags, Modified, Version, Updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)"},
+	{"insertFile", "INSERT INTO File (Device, Folder, Name, Flags, Modified, Version, Updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)"},
 	{"insertBlock", "INSERT INTO Block VALUES (?, ?, ?, ?)"},
 	{"selectBlock", "SELECT Hash, Size, Offs FROM Block WHERE FileID==?"},
-	{"selectFileHave", "SELECT ID, Name, Flags, Modified, Version FROM File WHERE Node==? AND Repo==?"},
-	{"selectFileGlobal", "SELECT ID, Name, Flags, Modified, MAX(Version) FROM File WHERE Repo==? GROUP BY Name ORDER BY Name"},
-	{"selectMaxID", "SELECT MAX(ID) FROM File WHERE Node==? AND Repo==?"},
-	{"selectGlobalID", "SELECT MAX(ID) FROM File WHERE Repo==? AND Name==?"},
-	{"selectMaxVersion", "SELECT MAX(Version) FROM File WHERE Repo==? AND Name==?"},
-	{"selectWithVersion", "SELECT Node, Flags FROM File WHERE Repo==? AND Name==? AND Version==?"},
-	{"selectNeed", "SELECT Name, MAX(Version) Version FROM File WHERE Repo==? GROUP BY Name EXCEPT SELECT Name, Version FROM File WHERE Node==? AND Repo==?"},
+	{"selectFileHave", "SELECT ID, Name, Flags, Modified, Version FROM File WHERE Device==? AND Folder==?"},
+	{"selectFileGlobal", "SELECT ID, Name, Flags, Modified, MAX(Version) FROM File WHERE Folder==? GROUP BY Name ORDER BY Name"},
+	{"selectMaxID", "SELECT MAX(ID) FROM File WHERE Device==? AND Folder==?"},
+	{"selectGlobalID", "SELECT MAX(ID) FROM File WHERE Folder==? AND Name==?"},
+	{"selectMaxVersion", "SELECT MAX(Version) FROM File WHERE Folder==? AND Name==?"},
+	{"selectWithVersion", "SELECT Device, Flags FROM File WHERE Folder==? AND Name==? AND Version==?"},
+	{"selectNeed", "SELECT Name, MAX(Version) Version FROM File WHERE Folder==? GROUP BY Name EXCEPT SELECT Name, Version FROM File WHERE Device==? AND Folder==?"},
 }
 
 type fileDB struct {
@@ -181,14 +181,14 @@ func (db *fileDB) updateWithDelete(device protocol.DeviceID, fs []protocol.FileI
 		l.Fatalln(err)
 	}
 
-	_, err = tx.Exec("UPDATE File SET Updated==0 WHERE Node==? AND Repo==?", device, db.repo)
+	_, err = tx.Exec("UPDATE File SET Updated==0 WHERE Device==? AND Folder==?", device, db.repo)
 	if err != nil {
 		l.Fatalln(err)
 	}
 
 	db.updateTx(device, fs, tx)
 
-	rows, err := tx.Query("SELECT ID, Flags, Version FROM File WHERE Repo==? AND Node==? AND Updated==0", db.repo, device.String())
+	rows, err := tx.Query("SELECT ID, Flags, Version FROM File WHERE Folder==? AND Device==? AND Updated==0", db.repo, device.String())
 	if err != nil && err != sql.ErrNoRows {
 		l.Fatalln(err)
 	}
@@ -223,7 +223,7 @@ func (db *fileDB) replace(device protocol.DeviceID, fs []protocol.FileInfo) erro
 }
 
 func (db *fileDB) replaceTx(device protocol.DeviceID, fs []protocol.FileInfo, tx *sql.Tx) error {
-	_, err := tx.Exec("UPDATE File SET Updated==0 WHERE Node==? AND Repo==?", device.String(), db.repo)
+	_, err := tx.Exec("UPDATE File SET Updated==0 WHERE Device==? AND Folder==?", device.String(), db.repo)
 	if err != nil {
 		l.Fatalln(err)
 	}
@@ -260,7 +260,7 @@ func (db *fileDB) replaceTx(device protocol.DeviceID, fs []protocol.FileInfo, tx
 		}
 	}
 
-	_, err = tx.Exec("DELETE FROM File WHERE Repo==? AND Node==? AND Updated==0", db.repo, device)
+	_, err = tx.Exec("DELETE FROM File WHERE Folder==? AND Device==? AND Updated==0", db.repo, device)
 	if err != nil {
 		l.Fatalln(err)
 	}
@@ -479,15 +479,15 @@ func (db *fileDB) availability(name string) []protocol.DeviceID {
 	}
 
 	var available []protocol.DeviceID
-	var node string
+	var device string
 	var flags uint32
 	for rows.Next() {
-		err = rows.Scan(&node, &flags)
+		err = rows.Scan(&device, &flags)
 		if err != nil {
 			l.Fatalln(err)
 		}
 		if flags&(protocol.FlagDeleted|protocol.FlagInvalid) == 0 {
-			devID, _ := protocol.DeviceIDFromString(node)
+			devID, _ := protocol.DeviceIDFromString(device)
 			available = append(available, devID)
 		}
 	}
