@@ -14,7 +14,6 @@ import (
 
 var connectionSetup = []string{
 	`PRAGMA journal_mode = OFF`,
-	`PRAGMA locking_mode = EXCLUSIVE`,
 	`PRAGMA journal_mode = WAL`,
 	`PRAGMA synchronous = NORMAL`,
 	`PRAGMA foreign_keys = ON`,
@@ -80,20 +79,19 @@ var preparedStmts = [][2]string{
 }
 
 type fileDB struct {
-	db     *sql.DB
-	folder string
-	stmts  map[string]*sql.Stmt
+	db    *sql.DB
+	stmts map[string]*sql.Stmt
 }
 
-func newFileDB(folder, name string) (*fileDB, error) {
-	db, err := sql.Open("sqlite3", "file:"+name+"?cache=shared&mode=rwc")
+func NewFileDB(name string) (*fileDB, error) {
+	db, err := sql.Open("sqlite3", "file:"+name)
 	if err != nil {
 		return nil, err
 	}
 
 	for _, stmt := range connectionSetup {
 		if debug {
-			l.Debugln(folder, stmt)
+			l.Debugln(stmt)
 		}
 		_, err = db.Exec(stmt)
 		if err != nil {
@@ -108,7 +106,7 @@ func newFileDB(folder, name string) (*fileDB, error) {
 
 	for _, stmt := range schemaSetup {
 		if debug {
-			l.Debugln(folder, stmt)
+			l.Debugln(stmt)
 		}
 		_, err = tx.Exec(stmt)
 		if err != nil {
@@ -121,15 +119,14 @@ func newFileDB(folder, name string) (*fileDB, error) {
 	}
 
 	fdb := fileDB{
-		db:     db,
-		folder: folder,
-		stmts:  make(map[string]*sql.Stmt),
+		db:    db,
+		stmts: make(map[string]*sql.Stmt),
 	}
 
 	for _, prep := range preparedStmts {
 		stmt, err := db.Prepare(prep[1])
 		if debug {
-			l.Debugln(folder, prep[1])
+			l.Debugln(prep[1])
 		}
 		if err != nil {
 			return nil, err
@@ -140,23 +137,23 @@ func newFileDB(folder, name string) (*fileDB, error) {
 	return &fdb, nil
 }
 
-func (db *fileDB) update(device protocol.DeviceID, fs []protocol.FileInfo) error {
+func (db *fileDB) update(folder string, device protocol.DeviceID, fs []protocol.FileInfo) error {
 	tx, err := db.db.Begin()
 	if err != nil {
 		l.Fatalln(err)
 	}
 
-	db.updateTx(device, fs, tx)
+	db.updateTx(folder, device, fs, tx)
 
 	return tx.Commit()
 }
 
-func (db *fileDB) updateTx(device protocol.DeviceID, fs []protocol.FileInfo, tx *sql.Tx) error {
+func (db *fileDB) updateTx(folder string, device protocol.DeviceID, fs []protocol.FileInfo, tx *sql.Tx) error {
 	for _, f := range fs {
 		var id int64
 		var version uint64
 
-		row := tx.Stmt(db.stmts["selectFileID"]).QueryRow(device[:], db.folder, f.Name)
+		row := tx.Stmt(db.stmts["selectFileID"]).QueryRow(device[:], folder, f.Name)
 		err := row.Scan(&id, &version)
 
 		if err == nil && version != f.Version {
@@ -174,7 +171,7 @@ func (db *fileDB) updateTx(device protocol.DeviceID, fs []protocol.FileInfo, tx 
 		}
 
 		if version != f.Version {
-			rs, err := tx.Stmt(db.stmts["insertFile"]).Exec(device[:], db.folder, f.Name, f.Flags, f.Modified, f.Version)
+			rs, err := tx.Stmt(db.stmts["insertFile"]).Exec(device[:], folder, f.Name, f.Flags, f.Modified, f.Version)
 			if err != nil {
 				l.Fatalln(err)
 			}
@@ -192,20 +189,20 @@ func (db *fileDB) updateTx(device protocol.DeviceID, fs []protocol.FileInfo, tx 
 	return nil
 }
 
-func (db *fileDB) updateWithDelete(device protocol.DeviceID, fs []protocol.FileInfo) error {
+func (db *fileDB) updateWithDelete(folder string, device protocol.DeviceID, fs []protocol.FileInfo) error {
 	tx, err := db.db.Begin()
 	if err != nil {
 		l.Fatalln(err)
 	}
 
-	_, err = tx.Exec("UPDATE File SET Updated==0 WHERE Device==? AND Folder==?", device[:], db.folder)
+	_, err = tx.Exec("UPDATE File SET Updated==0 WHERE Device==? AND Folder==?", device[:], folder)
 	if err != nil {
 		l.Fatalln(err)
 	}
 
-	db.updateTx(device, fs, tx)
+	db.updateTx(folder, device, fs, tx)
 
-	rows, err := tx.Query("SELECT ID, Flags, Version FROM File WHERE Folder==? AND Device==? AND Updated==0", db.folder, device[:])
+	rows, err := tx.Query("SELECT ID, Flags, Version FROM File WHERE Folder==? AND Device==? AND Updated==0", folder, device[:])
 	if err != nil && err != sql.ErrNoRows {
 		l.Fatalln(err)
 	}
@@ -228,19 +225,19 @@ func (db *fileDB) updateWithDelete(device protocol.DeviceID, fs []protocol.FileI
 	return tx.Commit()
 }
 
-func (db *fileDB) replace(device protocol.DeviceID, fs []protocol.FileInfo) error {
+func (db *fileDB) replace(folder string, device protocol.DeviceID, fs []protocol.FileInfo) error {
 	tx, err := db.db.Begin()
 	if err != nil {
 		l.Fatalln(err)
 	}
 
-	db.replaceTx(device, fs, tx)
+	db.replaceTx(folder, device, fs, tx)
 
 	return tx.Commit()
 }
 
-func (db *fileDB) replaceTx(device protocol.DeviceID, fs []protocol.FileInfo, tx *sql.Tx) error {
-	_, err := tx.Exec("UPDATE File SET Updated==0 WHERE Device==? AND Folder==?", device[:], db.folder)
+func (db *fileDB) replaceTx(folder string, device protocol.DeviceID, fs []protocol.FileInfo, tx *sql.Tx) error {
+	_, err := tx.Exec("UPDATE File SET Updated==0 WHERE Device==? AND Folder==?", device[:], folder)
 	if err != nil {
 		l.Fatalln(err)
 	}
@@ -249,7 +246,7 @@ func (db *fileDB) replaceTx(device protocol.DeviceID, fs []protocol.FileInfo, tx
 		var id int64
 		var version uint64
 
-		row := tx.Stmt(db.stmts["selectFileID"]).QueryRow(device[:], db.folder, f.Name)
+		row := tx.Stmt(db.stmts["selectFileID"]).QueryRow(device[:], folder, f.Name)
 		err := row.Scan(&id, &version)
 
 		if err == nil && version != f.Version {
@@ -262,7 +259,7 @@ func (db *fileDB) replaceTx(device protocol.DeviceID, fs []protocol.FileInfo, tx
 		}
 
 		if version != f.Version {
-			rs, err := tx.Stmt(db.stmts["insertFile"]).Exec(device[:], db.folder, f.Name, f.Flags, f.Modified, f.Version)
+			rs, err := tx.Stmt(db.stmts["insertFile"]).Exec(device[:], folder, f.Name, f.Flags, f.Modified, f.Version)
 			if err != nil {
 				l.Fatalln(err)
 			}
@@ -277,7 +274,7 @@ func (db *fileDB) replaceTx(device protocol.DeviceID, fs []protocol.FileInfo, tx
 		}
 	}
 
-	_, err = tx.Exec("DELETE FROM File WHERE Folder==? AND Device==? AND Updated==0", db.folder, device[:])
+	_, err = tx.Exec("DELETE FROM File WHERE Folder==? AND Device==? AND Updated==0", folder, device[:])
 	if err != nil {
 		l.Fatalln(err)
 	}
@@ -285,8 +282,8 @@ func (db *fileDB) replaceTx(device protocol.DeviceID, fs []protocol.FileInfo, tx
 	return nil
 }
 
-func (db *fileDB) have(device protocol.DeviceID) []protocol.FileInfo {
-	rows, err := db.stmts["selectFileHave"].Query(device[:], db.folder)
+func (db *fileDB) have(folder string, device protocol.DeviceID) []protocol.FileInfo {
+	rows, err := db.stmts["selectFileHave"].Query(device[:], folder)
 	if err == sql.ErrNoRows {
 		return nil
 	}
@@ -320,8 +317,8 @@ func (db *fileDB) have(device protocol.DeviceID) []protocol.FileInfo {
 	return files
 }
 
-func (db *fileDB) global() []protocol.FileInfo {
-	rows, err := db.stmts["selectFileGlobal"].Query(db.folder)
+func (db *fileDB) global(folder string) []protocol.FileInfo {
+	rows, err := db.stmts["selectFileGlobal"].Query(folder)
 	if err == sql.ErrNoRows {
 		return nil
 	}
@@ -355,8 +352,8 @@ func (db *fileDB) global() []protocol.FileInfo {
 	return files
 }
 
-func (db *fileDB) need(device protocol.DeviceID) []protocol.FileInfo {
-	rows, err := db.stmts["selectNeed"].Query(db.folder, device[:], db.folder)
+func (db *fileDB) need(folder string, device protocol.DeviceID) []protocol.FileInfo {
+	rows, err := db.stmts["selectNeed"].Query(folder, device[:], folder)
 	if err == sql.ErrNoRows {
 		return nil
 	}
@@ -398,11 +395,11 @@ func (db *fileDB) need(device protocol.DeviceID) []protocol.FileInfo {
 	return files
 }
 
-func (db *fileDB) get(device protocol.DeviceID, name string) protocol.FileInfo {
+func (db *fileDB) get(folder string, device protocol.DeviceID, name string) protocol.FileInfo {
 	var f protocol.FileInfo
 	var id int64
 
-	row := db.stmts["selectFileAll"].QueryRow(device[:], db.folder, name)
+	row := db.stmts["selectFileAll"].QueryRow(device[:], folder, name)
 	err := row.Scan(&id, &f.Name, &f.Flags, &f.Modified, &f.Version)
 	if err == sql.ErrNoRows {
 		return f
@@ -425,11 +422,11 @@ func (db *fileDB) get(device protocol.DeviceID, name string) protocol.FileInfo {
 	return f
 }
 
-func (db *fileDB) getGlobal(name string) protocol.FileInfo {
+func (db *fileDB) getGlobal(folder, name string) protocol.FileInfo {
 	var f protocol.FileInfo
 	var gid *uint64
 
-	row := db.stmts["selectGlobalID"].QueryRow(db.folder, name)
+	row := db.stmts["selectGlobalID"].QueryRow(folder, name)
 	err := row.Scan(&gid)
 	if gid == nil {
 		return f
@@ -462,10 +459,10 @@ func (db *fileDB) getGlobal(name string) protocol.FileInfo {
 	return f
 }
 
-func (db *fileDB) maxID(device protocol.DeviceID) uint64 {
+func (db *fileDB) maxID(folder string, device protocol.DeviceID) uint64 {
 	var id *uint64
 
-	row := db.stmts["selectMaxID"].QueryRow(device[:], db.folder)
+	row := db.stmts["selectMaxID"].QueryRow(device[:], folder)
 	err := row.Scan(&id)
 	if id == nil {
 		return 0
@@ -476,9 +473,9 @@ func (db *fileDB) maxID(device protocol.DeviceID) uint64 {
 	return *id
 }
 
-func (db *fileDB) availability(name string) []protocol.DeviceID {
+func (db *fileDB) availability(folder, name string) []protocol.DeviceID {
 	var version *int64
-	row := db.stmts["selectMaxVersion"].QueryRow(db.folder, name)
+	row := db.stmts["selectMaxVersion"].QueryRow(folder, name)
 	err := row.Scan(&version)
 	if version == nil {
 		return nil
@@ -487,7 +484,7 @@ func (db *fileDB) availability(name string) []protocol.DeviceID {
 		l.Fatalln(err)
 	}
 
-	rows, err := db.stmts["selectWithVersion"].Query(db.folder, name, *version)
+	rows, err := db.stmts["selectWithVersion"].Query(folder, name, *version)
 	if err == sql.ErrNoRows {
 		return nil
 	}

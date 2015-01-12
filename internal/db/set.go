@@ -65,7 +65,7 @@ func NewFileSet(folder string, db *leveldb.DB) *FileSet {
 		localVersion: make(map[protocol.DeviceID]uint64),
 		folder:       folder,
 		db:           db,
-		fileDB:       fdb,
+		fileDB:       fileDB,
 		blockmap:     NewBlockMap(db, folder),
 	}
 
@@ -108,7 +108,7 @@ func (s *FileSet) Replace(device protocol.DeviceID, fs []protocol.FileInfo) {
 
 	// ---
 
-	err := s.fileDB.replace(device, fs)
+	err := s.fileDB.replace(s.folder, device, fs)
 	if err != nil {
 		panic(err)
 	}
@@ -131,7 +131,7 @@ func (s *FileSet) ReplaceWithDelete(device protocol.DeviceID, fs []protocol.File
 
 	// ---
 
-	err := s.fileDB.updateWithDelete(device, fs)
+	err := s.fileDB.updateWithDelete(s.folder, device, fs)
 	if err != nil {
 		panic(err)
 	}
@@ -163,7 +163,7 @@ func (s *FileSet) Update(device protocol.DeviceID, fs []protocol.FileInfo) {
 
 	// ---
 
-	err := s.fileDB.update(device, fs)
+	err := s.fileDB.update(s.folder, device, fs)
 	if err != nil {
 		panic(err)
 	}
