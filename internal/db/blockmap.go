@@ -39,19 +39,17 @@ import (
 var blockFinder *BlockFinder
 
 type BlockMap struct {
-	db     *leveldb.DB
-	folder string
+	db *leveldb.DB
 }
 
-func NewBlockMap(db *leveldb.DB, folder string) *BlockMap {
+func NewBlockMap(db *leveldb.DB) *BlockMap {
 	return &BlockMap{
-		db:     db,
-		folder: folder,
+		db: db,
 	}
 }
 
 // Add files to the block map, ignoring any deleted or invalid files.
-func (m *BlockMap) Add(files []protocol.FileInfo) error {
+func (m *BlockMap) Add(folder string, files []protocol.FileInfo) error {
 	batch := new(leveldb.Batch)
 	buf := make([]byte, 4)
 	for _, file := range files {
@@ -61,14 +59,14 @@ func (m *BlockMap) Add(files []protocol.FileInfo) error {
 
 		for i, block := range file.Blocks {
 			binary.BigEndian.PutUint32(buf, uint32(i))
-			batch.Put(m.blockKey(block.Hash, file.Name), buf)
+			batch.Put(m.blockKey(block.Hash, folder, file.Name), buf)
 		}
 	}
 	return m.db.Write(batch, nil)
 }
 
 // Update block map state, removing any deleted or invalid files.
-func (m *BlockMap) Update(files []protocol.FileInfo) error {
+func (m *BlockMap) Update(folder string, files []protocol.FileInfo) error {
 	batch := new(leveldb.Batch)
 	buf := make([]byte, 4)
 	for _, file := range files {
@@ -78,34 +76,34 @@ func (m *BlockMap) Update(files []protocol.FileInfo) error {
 
 		if file.IsDeleted() || file.IsInvalid() {
 			for _, block := range file.Blocks {
-				batch.Delete(m.blockKey(block.Hash, file.Name))
+				batch.Delete(m.blockKey(block.Hash, folder, file.Name))
 			}
 			continue
 		}
 
 		for i, block := range file.Blocks {
 			binary.BigEndian.PutUint32(buf, uint32(i))
-			batch.Put(m.blockKey(block.Hash, file.Name), buf)
+			batch.Put(m.blockKey(block.Hash, folder, file.Name), buf)
 		}
 	}
 	return m.db.Write(batch, nil)
 }
 
 // Discard block map state, removing the given files
-func (m *BlockMap) Discard(files []protocol.FileInfo) error {
+func (m *BlockMap) Discard(folder string, files []protocol.FileInfo) error {
 	batch := new(leveldb.Batch)
 	for _, file := range files {
 		for _, block := range file.Blocks {
-			batch.Delete(m.blockKey(block.Hash, file.Name))
+			batch.Delete(m.blockKey(block.Hash, folder, file.Name))
 		}
 	}
 	return m.db.Write(batch, nil)
 }
 
 // Drop block map, removing all entries related to this block map from the db.
-func (m *BlockMap) Drop() error {
+func (m *BlockMap) Drop(folder string) error {
 	batch := new(leveldb.Batch)
-	iter := m.db.NewIterator(util.BytesPrefix(m.blockKey(nil, "")[:1+64]), nil)
+	iter := m.db.NewIterator(util.BytesPrefix(m.blockKey(nil, folder, "")[:1+64]), nil)
 	defer iter.Release()
 	for iter.Next() {
 		batch.Delete(iter.Key())
@@ -116,8 +114,8 @@ func (m *BlockMap) Drop() error {
 	return m.db.Write(batch, nil)
 }
 
-func (m *BlockMap) blockKey(hash []byte, file string) []byte {
-	return toBlockKey(hash, m.folder, file)
+func (m *BlockMap) blockKey(hash []byte, folder, file string) []byte {
+	return toBlockKey(hash, folder, file)
 }
 
 type BlockFinder struct {

@@ -94,11 +94,11 @@ func TestBlockMapAddUpdateWipe(t *testing.T) {
 		t.Fatal("db not empty")
 	}
 
-	m := NewBlockMap(db, "folder1")
+	m := NewBlockMap(db)
 
 	f3.Flags |= protocol.FlagDirectory
 
-	err := m.Add([]protocol.FileInfo{f1, f2, f3})
+	err := m.Add("folder1", []protocol.FileInfo{f1, f2, f3})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestBlockMapAddUpdateWipe(t *testing.T) {
 	f2.Flags |= protocol.FlagInvalid
 
 	// Should remove
-	err = m.Update([]protocol.FileInfo{f1, f2, f3})
+	err = m.Update("folder1", []protocol.FileInfo{f1, f2, f3})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestBlockMapAddUpdateWipe(t *testing.T) {
 		return true
 	})
 
-	err = m.Drop()
+	err = m.Drop("folder1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestBlockMapAddUpdateWipe(t *testing.T) {
 	}
 
 	// Should not add
-	err = m.Add([]protocol.FileInfo{f1, f2})
+	err = m.Add("folder1", []protocol.FileInfo{f1, f2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,14 +176,14 @@ func TestBlockMapAddUpdateWipe(t *testing.T) {
 func TestBlockFinderLookup(t *testing.T) {
 	db, f := setup()
 
-	m1 := NewBlockMap(db, "folder1")
-	m2 := NewBlockMap(db, "folder2")
+	m1 := NewBlockMap(db)
+	m2 := NewBlockMap(db)
 
-	err := m1.Add([]protocol.FileInfo{f1})
+	err := m1.Add("folder1", []protocol.FileInfo{f1})
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = m2.Add([]protocol.FileInfo{f1})
+	err = m2.Add("folder2", []protocol.FileInfo{f1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +211,7 @@ func TestBlockFinderLookup(t *testing.T) {
 
 	f1.Flags |= protocol.FlagDeleted
 
-	err = m1.Update([]protocol.FileInfo{f1})
+	err = m1.Update("folder1", []protocol.FileInfo{f1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,8 +243,8 @@ func TestBlockFinderFix(t *testing.T) {
 		return true
 	}
 
-	m := NewBlockMap(db, "folder1")
-	err := m.Add([]protocol.FileInfo{f1})
+	m := NewBlockMap(db)
+	err := m.Add("folder1", []protocol.FileInfo{f1})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -59,7 +59,7 @@ func NewFileSet(folder string, db *leveldb.DB) *FileSet {
 		localVersion: make(map[protocol.DeviceID]uint64),
 		folder:       folder,
 		db:           db,
-		blockmap:     NewBlockMap(db, folder),
+		blockmap:     NewBlockMap(db),
 	}
 
 	ldbCheckGlobals(db, []byte(folder))
@@ -94,8 +94,8 @@ func (s *FileSet) Replace(device protocol.DeviceID, fs []protocol.FileInfo) {
 		s.localVersion[device] = 0
 	}
 	if device == protocol.LocalDeviceID {
-		s.blockmap.Drop()
-		s.blockmap.Add(fs)
+		s.blockmap.Drop(s.folder)
+		s.blockmap.Add(s.folder, fs)
 	}
 }
 
@@ -110,8 +110,8 @@ func (s *FileSet) ReplaceWithDelete(device protocol.DeviceID, fs []protocol.File
 		s.localVersion[device] = lv
 	}
 	if device == protocol.LocalDeviceID {
-		s.blockmap.Drop()
-		s.blockmap.Add(fs)
+		s.blockmap.Drop(s.folder)
+		s.blockmap.Add(s.folder, fs)
 	}
 }
 
@@ -132,8 +132,8 @@ func (s *FileSet) Update(device protocol.DeviceID, fs []protocol.FileInfo) {
 				updates = append(updates, newFile)
 			}
 		}
-		s.blockmap.Discard(discards)
-		s.blockmap.Update(updates)
+		s.blockmap.Discard(s.folder, discards)
+		s.blockmap.Update(s.folder, updates)
 	}
 	if lv := ldbUpdate(s.db, []byte(s.folder), device[:], fs); lv > s.localVersion[device] {
 		s.localVersion[device] = lv
@@ -228,10 +228,9 @@ func ListFolders(db *leveldb.DB) []string {
 func DropFolder(db *leveldb.DB, folder string) {
 	ldbDropFolder(db, []byte(folder))
 	bm := &BlockMap{
-		db:     db,
-		folder: folder,
+		db: db,
 	}
-	bm.Drop()
+	bm.Drop(folder)
 }
 
 func normalizeFilenames(fs []protocol.FileInfo) {
