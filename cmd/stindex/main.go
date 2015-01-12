@@ -39,14 +39,14 @@ func main() {
 		log.Fatal(err)
 	}
 
-	fs := db.NewFileSet(*folder, ldb)
+	fs := db.NewFileSet(ldb)
 
 	if *device == "" {
 		log.Printf("*** Global index for folder %q", *folder)
-		fs.WithGlobalTruncated(func(fi db.FileIntf) bool {
+		fs.WithGlobalTruncated(*folder, func(fi db.FileIntf) bool {
 			f := fi.(db.FileInfoTruncated)
 			fmt.Println(f)
-			fmt.Println("\t", fs.Availability(f.Name))
+			fmt.Println("\t", fs.Availability(*folder, f.Name))
 			return true
 		})
 	} else {
@@ -55,7 +55,7 @@ func main() {
 			log.Fatal(err)
 		}
 		log.Printf("*** Have index for folder %q device %q", *folder, n)
-		fs.WithHaveTruncated(n, func(fi db.FileIntf) bool {
+		fs.WithHaveTruncated(*folder, n, func(fi db.FileIntf) bool {
 			f := fi.(db.FileInfoTruncated)
 			fmt.Println(f)
 			return true

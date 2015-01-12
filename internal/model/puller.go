@@ -299,7 +299,7 @@ func (p *Puller) pullerIteration(ignores *ignore.Matcher) int {
 
 	var deletions []protocol.FileInfo
 
-	folderFiles.WithNeed(protocol.LocalDeviceID, func(intf db.FileIntf) bool {
+	folderFiles.WithNeed(p.folder, protocol.LocalDeviceID, func(intf db.FileIntf) bool {
 
 		// Needed items are delivered sorted lexicographically. This isn't
 		// really optimal from a performance point of view - it would be

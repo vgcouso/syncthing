@@ -91,8 +91,8 @@ func TestSanityCheck(t *testing.T) {
 
 	// Case 3 - marker missing
 
-	set := db.NewFileSet("folder", ldb)
-	set.Update(protocol.LocalDeviceID, []protocol.FileInfo{
+	set := db.NewFileSet(ldb)
+	set.Update("folder", protocol.LocalDeviceID, []protocol.FileInfo{
 		{Name: "dummyfile"},
 	})
 

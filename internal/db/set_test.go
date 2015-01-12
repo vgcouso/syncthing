@@ -49,9 +49,9 @@ func genBlocks(n int) []protocol.BlockInfo {
 	return b
 }
 
-func globalList(s *db.FileSet) []protocol.FileInfo {
+func globalList(folder string, s *db.FileSet) []protocol.FileInfo {
 	var fs []protocol.FileInfo
-	s.WithGlobal(func(fi db.FileIntf) bool {
+	s.WithGlobal(folder, func(fi db.FileIntf) bool {
 		f := fi.(protocol.FileInfo)
 		fs = append(fs, f)
 		return true
@@ -59,9 +59,9 @@ func globalList(s *db.FileSet) []protocol.FileInfo {
 	return fs
 }
 
-func haveList(s *db.FileSet, n protocol.DeviceID) []protocol.FileInfo {
+func haveList(folder string, s *db.FileSet, n protocol.DeviceID) []protocol.FileInfo {
 	var fs []protocol.FileInfo
-	s.WithHave(n, func(fi db.FileIntf) bool {
+	s.WithHave(folder, n, func(fi db.FileIntf) bool {
 		f := fi.(protocol.FileInfo)
 		fs = append(fs, f)
 		return true
@@ -69,9 +69,9 @@ func haveList(s *db.FileSet, n protocol.DeviceID) []protocol.FileInfo {
 	return fs
 }
 
-func needList(s *db.FileSet, n protocol.DeviceID) []protocol.FileInfo {
+func needList(folder string, s *db.FileSet, n protocol.DeviceID) []protocol.FileInfo {
 	var fs []protocol.FileInfo
-	s.WithNeed(n, func(fi db.FileIntf) bool {
+	s.WithNeed(folder, n, func(fi db.FileIntf) bool {
 		f := fi.(protocol.FileInfo)
 		fs = append(fs, f)
 		return true
@@ -111,7 +111,7 @@ func TestGlobalSet(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m := db.NewFileSet("test", ldb)
+	m := db.NewFileSet(ldb)
 
 	local0 := fileList{
 		protocol.FileInfo{Name: "a", Version: 1000, Blocks: genBlocks(1)},
@@ -169,47 +169,47 @@ func TestGlobalSet(t *testing.T) {
 		local0[3],
 	}
 
-	m.ReplaceWithDelete(protocol.LocalDeviceID, local0)
-	m.ReplaceWithDelete(protocol.LocalDeviceID, local1)
-	m.Replace(remoteDevice0, remote0)
-	m.Update(remoteDevice0, remote1)
+	m.ReplaceWithDelete("folder1", protocol.LocalDeviceID, local0)
+	m.ReplaceWithDelete("folder1", protocol.LocalDeviceID, local1)
+	m.Replace("folder1", remoteDevice0, remote0)
+	m.Update("folder1", remoteDevice0, remote1)
 
-	g := fileList(globalList(m))
+	g := fileList(globalList("folder1", m))
 	sort.Sort(g)
 
 	if fmt.Sprint(g) != fmt.Sprint(expectedGlobal) {
 		t.Errorf("Global incorrect;\n A: %v !=\n E: %v", g, expectedGlobal)
 	}
 
-	h := fileList(haveList(m, protocol.LocalDeviceID))
+	h := fileList(haveList("folder1", m, protocol.LocalDeviceID))
 	sort.Sort(h)
 
 	if fmt.Sprint(h) != fmt.Sprint(localTot) {
 		t.Errorf("Have incorrect;\n A: %v !=\n E: %v", h, localTot)
 	}
 
-	h = fileList(haveList(m, remoteDevice0))
+	h = fileList(haveList("folder1", m, remoteDevice0))
 	sort.Sort(h)
 
 	if fmt.Sprint(h) != fmt.Sprint(remoteTot) {
 		t.Errorf("Have incorrect;\n A: %v !=\n E: %v", h, remoteTot)
 	}
 
-	n := fileList(needList(m, protocol.LocalDeviceID))
+	n := fileList(needList("folder1", m, protocol.LocalDeviceID))
 	sort.Sort(n)
 
 	if fmt.Sprint(n) != fmt.Sprint(expectedLocalNeed) {
 		t.Errorf("Need incorrect;\n A: %v !=\n E: %v", n, expectedLocalNeed)
 	}
 
-	n = fileList(needList(m, remoteDevice0))
+	n = fileList(needList("folder1", m, remoteDevice0))
 	sort.Sort(n)
 
 	if fmt.Sprint(n) != fmt.Sprint(expectedRemoteNeed) {
 		t.Errorf("Need incorrect;\n A: %v !=\n E: %v", n, expectedRemoteNeed)
 	}
 
-	f, ok := m.Get(protocol.LocalDeviceID, "b")
+	f, ok := m.Get("folder1", protocol.LocalDeviceID, "b")
 	if !ok {
 		t.Error("Unexpectedly not OK")
 	}
@@ -217,7 +217,7 @@ func TestGlobalSet(t *testing.T) {
 		t.Errorf("Get incorrect;\n A: %v !=\n E: %v", f, localTot[1])
 	}
 
-	f, ok = m.Get(remoteDevice0, "b")
+	f, ok = m.Get("folder1", remoteDevice0, "b")
 	if !ok {
 		t.Error("Unexpectedly not OK")
 	}
@@ -225,7 +225,7 @@ func TestGlobalSet(t *testing.T) {
 		t.Errorf("Get incorrect;\n A: %v !=\n E: %v", f, remote1[0])
 	}
 
-	f, ok = m.GetGlobal("b")
+	f, ok = m.GetGlobal("folder1", "b")
 	if !ok {
 		t.Error("Unexpectedly not OK")
 	}
@@ -233,7 +233,7 @@ func TestGlobalSet(t *testing.T) {
 		t.Errorf("GetGlobal incorrect;\n A: %v !=\n E: %v", f, remote1[0])
 	}
 
-	f, ok = m.Get(protocol.LocalDeviceID, "zz")
+	f, ok = m.Get("folder1", protocol.LocalDeviceID, "zz")
 	if ok {
 		t.Error("Unexpectedly OK")
 	}
@@ -241,7 +241,7 @@ func TestGlobalSet(t *testing.T) {
 		t.Errorf("Get incorrect;\n A: %v !=\n E: %v", f, protocol.FileInfo{})
 	}
 
-	f, ok = m.GetGlobal("zz")
+	f, ok = m.GetGlobal("folder1", "zz")
 	if ok {
 		t.Error("Unexpectedly OK")
 	}
@@ -250,15 +250,15 @@ func TestGlobalSet(t *testing.T) {
 	}
 
 	av := []protocol.DeviceID{protocol.LocalDeviceID, remoteDevice0}
-	a := m.Availability("a")
+	a := m.Availability("folder1", "a")
 	if !(len(a) == 2 && (a[0] == av[0] && a[1] == av[1] || a[0] == av[1] && a[1] == av[0])) {
 		t.Errorf("Availability incorrect;\n A: %v !=\n E: %v", a, av)
 	}
-	a = m.Availability("b")
+	a = m.Availability("folder1", "b")
 	if len(a) != 1 || a[0] != remoteDevice0 {
 		t.Errorf("Availability incorrect;\n A: %v !=\n E: %v", a, remoteDevice0)
 	}
-	a = m.Availability("d")
+	a = m.Availability("folder1", "d")
 	if len(a) != 1 || a[0] != protocol.LocalDeviceID {
 		t.Errorf("Availability incorrect;\n A: %v !=\n E: %v", a, protocol.LocalDeviceID)
 	}
@@ -272,7 +272,7 @@ func TestNeedWithInvalid(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := db.NewFileSet("test", ldb)
+	s := db.NewFileSet(ldb)
 
 	localHave := fileList{
 		protocol.FileInfo{Name: "a", Version: 1000, Blocks: genBlocks(1)},
@@ -294,11 +294,11 @@ func TestNeedWithInvalid(t *testing.T) {
 		protocol.FileInfo{Name: "d", Version: 1003, Blocks: genBlocks(7)},
 	}
 
-	s.ReplaceWithDelete(protocol.LocalDeviceID, localHave)
-	s.Replace(remoteDevice0, remote0Have)
-	s.Replace(remoteDevice1, remote1Have)
+	s.ReplaceWithDelete("folder1", protocol.LocalDeviceID, localHave)
+	s.Replace("folder1", remoteDevice0, remote0Have)
+	s.Replace("folder1", remoteDevice1, remote1Have)
 
-	need := fileList(needList(s, protocol.LocalDeviceID))
+	need := fileList(needList("folder1", s, protocol.LocalDeviceID))
 	sort.Sort(need)
 
 	if fmt.Sprint(need) != fmt.Sprint(expectedNeed) {
@@ -314,7 +314,7 @@ func TestUpdateToInvalid(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := db.NewFileSet("test", ldb)
+	s := db.NewFileSet(ldb)
 
 	localHave := fileList{
 		protocol.FileInfo{Name: "a", Version: 1000, Blocks: genBlocks(1)},
@@ -323,9 +323,9 @@ func TestUpdateToInvalid(t *testing.T) {
 		protocol.FileInfo{Name: "d", Version: 1003, Blocks: genBlocks(7)},
 	}
 
-	s.ReplaceWithDelete(protocol.LocalDeviceID, localHave)
+	s.ReplaceWithDelete("folder1", protocol.LocalDeviceID, localHave)
 
-	have := fileList(haveList(s, protocol.LocalDeviceID))
+	have := fileList(haveList("folder1", s, protocol.LocalDeviceID))
 	sort.Sort(have)
 
 	if fmt.Sprint(have) != fmt.Sprint(localHave) {
@@ -333,9 +333,9 @@ func TestUpdateToInvalid(t *testing.T) {
 	}
 
 	localHave[1] = protocol.FileInfo{Name: "b", Version: 1001, Flags: protocol.FlagInvalid}
-	s.Update(protocol.LocalDeviceID, localHave[1:2])
+	s.Update("folder1", protocol.LocalDeviceID, localHave[1:2])
 
-	have = fileList(haveList(s, protocol.LocalDeviceID))
+	have = fileList(haveList("folder1", s, protocol.LocalDeviceID))
 	sort.Sort(have)
 
 	if fmt.Sprint(have) != fmt.Sprint(localHave) {
@@ -351,7 +351,7 @@ func TestInvalidAvailability(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := db.NewFileSet("test", ldb)
+	s := db.NewFileSet(ldb)
 
 	remote0Have := fileList{
 		protocol.FileInfo{Name: "both", Version: 1001, Blocks: genBlocks(2)},
@@ -366,22 +366,22 @@ func TestInvalidAvailability(t *testing.T) {
 		protocol.FileInfo{Name: "none", Version: 1004, Blocks: genBlocks(5), Flags: protocol.FlagInvalid},
 	}
 
-	s.Replace(remoteDevice0, remote0Have)
-	s.Replace(remoteDevice1, remote1Have)
+	s.Replace("folder1", remoteDevice0, remote0Have)
+	s.Replace("folder1", remoteDevice1, remote1Have)
 
-	if av := s.Availability("both"); len(av) != 2 {
+	if av := s.Availability("folder1", "both"); len(av) != 2 {
 		t.Error("Incorrect availability for 'both':", av)
 	}
 
-	if av := s.Availability("r0only"); len(av) != 1 || av[0] != remoteDevice0 {
+	if av := s.Availability("folder1", "r0only"); len(av) != 1 || av[0] != remoteDevice0 {
 		t.Error("Incorrect availability for 'r0only':", av)
 	}
 
-	if av := s.Availability("r1only"); len(av) != 1 || av[0] != remoteDevice1 {
+	if av := s.Availability("folder1", "r1only"); len(av) != 1 || av[0] != remoteDevice1 {
 		t.Error("Incorrect availability for 'r1only':", av)
 	}
 
-	if av := s.Availability("none"); len(av) != 0 {
+	if av := s.Availability("folder1", "none"); len(av) != 0 {
 		t.Error("Incorrect availability for 'none':", av)
 	}
 }
@@ -391,7 +391,7 @@ func TestLocalDeleted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := db.NewFileSet("test", ldb)
+	m := db.NewFileSet(ldb)
 	lamport.Default = lamport.Clock{}
 
 	local1 := []protocol.FileInfo{
@@ -402,22 +402,22 @@ func TestLocalDeleted(t *testing.T) {
 		{Name: "z", Version: 1000, Flags: protocol.FlagDirectory},
 	}
 
-	m.ReplaceWithDelete(protocol.LocalDeviceID, local1)
+	m.ReplaceWithDelete("folder1", protocol.LocalDeviceID, local1)
 
-	m.ReplaceWithDelete(protocol.LocalDeviceID, []protocol.FileInfo{
+	m.ReplaceWithDelete("folder1", protocol.LocalDeviceID, []protocol.FileInfo{
 		local1[0],
 		// [1] removed
 		local1[2],
 		local1[3],
 		local1[4],
 	})
-	m.ReplaceWithDelete(protocol.LocalDeviceID, []protocol.FileInfo{
+	m.ReplaceWithDelete("folder1", protocol.LocalDeviceID, []protocol.FileInfo{
 		local1[0],
 		local1[2],
 		// [3] removed
 		local1[4],
 	})
-	m.ReplaceWithDelete(protocol.LocalDeviceID, []protocol.FileInfo{
+	m.ReplaceWithDelete("folder1", protocol.LocalDeviceID, []protocol.FileInfo{
 		local1[0],
 		local1[2],
 		// [4] removed
@@ -431,7 +431,7 @@ func TestLocalDeleted(t *testing.T) {
 		{Name: "z", Version: 1003, Flags: protocol.FlagDeleted | protocol.FlagDirectory},
 	}
 
-	g := globalList(m)
+	g := globalList("folder1", m)
 	sort.Sort(fileList(g))
 	sort.Sort(fileList(expectedGlobal1))
 
@@ -439,7 +439,7 @@ func TestLocalDeleted(t *testing.T) {
 		t.Errorf("Global incorrect;\n A: %v !=\n E: %v", g, expectedGlobal1)
 	}
 
-	m.ReplaceWithDelete(protocol.LocalDeviceID, []protocol.FileInfo{
+	m.ReplaceWithDelete("folder1", protocol.LocalDeviceID, []protocol.FileInfo{
 		local1[0],
 		// [2] removed
 	})
@@ -452,7 +452,7 @@ func TestLocalDeleted(t *testing.T) {
 		{Name: "z", Version: 1003, Flags: protocol.FlagDeleted | protocol.FlagDirectory},
 	}
 
-	g = globalList(m)
+	g = globalList("folder1", m)
 	sort.Sort(fileList(g))
 	sort.Sort(fileList(expectedGlobal2))
 
@@ -474,8 +474,8 @@ func Benchmark10kReplace(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		m := db.NewFileSet("test", ldb)
-		m.ReplaceWithDelete(protocol.LocalDeviceID, local)
+		m := db.NewFileSet(ldb)
+		m.ReplaceWithDelete("folder1", protocol.LocalDeviceID, local)
 	}
 }
 
@@ -490,15 +490,15 @@ func Benchmark10kUpdateChg(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	m := db.NewFileSet("test", ldb)
-	m.Replace(remoteDevice0, remote)
+	m := db.NewFileSet(ldb)
+	m.Replace("folder1", remoteDevice0, remote)
 
 	var local []protocol.FileInfo
 	for i := 0; i < 10000; i++ {
 		local = append(local, protocol.FileInfo{Name: fmt.Sprintf("file%d", i), Version: 1000})
 	}
 
-	m.ReplaceWithDelete(protocol.LocalDeviceID, local)
+	m.ReplaceWithDelete("folder1", protocol.LocalDeviceID, local)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -507,7 +507,7 @@ func Benchmark10kUpdateChg(b *testing.B) {
 			local[j].Version++
 		}
 		b.StartTimer()
-		m.Update(protocol.LocalDeviceID, local)
+		m.Update("folder1", protocol.LocalDeviceID, local)
 	}
 }
 
@@ -521,19 +521,19 @@ func Benchmark10kUpdateSme(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	m := db.NewFileSet("test", ldb)
-	m.Replace(remoteDevice0, remote)
+	m := db.NewFileSet(ldb)
+	m.Replace("folder1", remoteDevice0, remote)
 
 	var local []protocol.FileInfo
 	for i := 0; i < 10000; i++ {
 		local = append(local, protocol.FileInfo{Name: fmt.Sprintf("file%d", i), Version: 1000})
 	}
 
-	m.ReplaceWithDelete(protocol.LocalDeviceID, local)
+	m.ReplaceWithDelete("folder1", protocol.LocalDeviceID, local)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		m.Update(protocol.LocalDeviceID, local)
+		m.Update("folder1", protocol.LocalDeviceID, local)
 	}
 }
 
@@ -548,8 +548,8 @@ func Benchmark10kNeed2k(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	m := db.NewFileSet("test", ldb)
-	m.Replace(remoteDevice0, remote)
+	m := db.NewFileSet(ldb)
+	m.Replace("folder1", remoteDevice0, remote)
 
 	var local []protocol.FileInfo
 	for i := 0; i < 8000; i++ {
@@ -559,11 +559,11 @@ func Benchmark10kNeed2k(b *testing.B) {
 		local = append(local, protocol.FileInfo{Name: fmt.Sprintf("file%d", i), Version: 980})
 	}
 
-	m.ReplaceWithDelete(protocol.LocalDeviceID, local)
+	m.ReplaceWithDelete("folder1", protocol.LocalDeviceID, local)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		fs := needList(m, protocol.LocalDeviceID)
+		fs := needList("folder1", m, protocol.LocalDeviceID)
 		if l := len(fs); l != 2000 {
 			b.Errorf("wrong length %d != 2k", l)
 		}
@@ -581,8 +581,8 @@ func Benchmark10kHaveFullList(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	m := db.NewFileSet("test", ldb)
-	m.Replace(remoteDevice0, remote)
+	m := db.NewFileSet(ldb)
+	m.Replace("folder1", remoteDevice0, remote)
 
 	var local []protocol.FileInfo
 	for i := 0; i < 2000; i++ {
@@ -592,11 +592,11 @@ func Benchmark10kHaveFullList(b *testing.B) {
 		local = append(local, protocol.FileInfo{Name: fmt.Sprintf("file%d", i), Version: 980})
 	}
 
-	m.ReplaceWithDelete(protocol.LocalDeviceID, local)
+	m.ReplaceWithDelete("folder1", protocol.LocalDeviceID, local)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		fs := haveList(m, protocol.LocalDeviceID)
+		fs := haveList("folder1", m, protocol.LocalDeviceID)
 		if l := len(fs); l != 10000 {
 			b.Errorf("wrong length %d != 10k", l)
 		}
@@ -614,8 +614,8 @@ func Benchmark10kGlobal(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	m := db.NewFileSet("test", ldb)
-	m.Replace(remoteDevice0, remote)
+	m := db.NewFileSet(ldb)
+	m.Replace("folder1", remoteDevice0, remote)
 
 	var local []protocol.FileInfo
 	for i := 0; i < 2000; i++ {
@@ -625,11 +625,11 @@ func Benchmark10kGlobal(b *testing.B) {
 		local = append(local, protocol.FileInfo{Name: fmt.Sprintf("file%d", i), Version: 980})
 	}
 
-	m.ReplaceWithDelete(protocol.LocalDeviceID, local)
+	m.ReplaceWithDelete("folder1", protocol.LocalDeviceID, local)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		fs := globalList(m)
+		fs := globalList("folder1", m)
 		if l := len(fs); l != 10000 {
 			b.Errorf("wrong length %d != 10k", l)
 		}
@@ -642,7 +642,7 @@ func TestGlobalReset(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m := db.NewFileSet("test", ldb)
+	m := db.NewFileSet(ldb)
 
 	local := []protocol.FileInfo{
 		{Name: "a", Version: 1000},
@@ -658,18 +658,18 @@ func TestGlobalReset(t *testing.T) {
 		{Name: "e", Version: 1000},
 	}
 
-	m.ReplaceWithDelete(protocol.LocalDeviceID, local)
-	g := globalList(m)
+	m.ReplaceWithDelete("folder1", protocol.LocalDeviceID, local)
+	g := globalList("folder1", m)
 	sort.Sort(fileList(g))
 
 	if fmt.Sprint(g) != fmt.Sprint(local) {
 		t.Errorf("Global incorrect;\n%v !=\n%v", g, local)
 	}
 
-	m.Replace(remoteDevice0, remote)
-	m.Replace(remoteDevice0, nil)
+	m.Replace("folder1", remoteDevice0, remote)
+	m.Replace("folder1", remoteDevice0, nil)
 
-	g = globalList(m)
+	g = globalList("folder1", m)
 	sort.Sort(fileList(g))
 
 	if fmt.Sprint(g) != fmt.Sprint(local) {
@@ -683,7 +683,7 @@ func TestNeed(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m := db.NewFileSet("test", ldb)
+	m := db.NewFileSet(ldb)
 
 	local := []protocol.FileInfo{
 		{Name: "a", Version: 1000},
@@ -705,10 +705,10 @@ func TestNeed(t *testing.T) {
 		{Name: "e", Version: 1000},
 	}
 
-	m.ReplaceWithDelete(protocol.LocalDeviceID, local)
-	m.Replace(remoteDevice0, remote)
+	m.ReplaceWithDelete("folder1", protocol.LocalDeviceID, local)
+	m.Replace("folder1", remoteDevice0, remote)
 
-	need := needList(m, protocol.LocalDeviceID)
+	need := needList("folder1", m, protocol.LocalDeviceID)
 
 	sort.Sort(fileList(need))
 	sort.Sort(fileList(shouldNeed))
@@ -724,7 +724,7 @@ func TestLocalVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m := db.NewFileSet("test", ldb)
+	m := db.NewFileSet(ldb)
 
 	local1 := []protocol.FileInfo{
 		{Name: "a", Version: 1000},
@@ -741,17 +741,17 @@ func TestLocalVersion(t *testing.T) {
 		{Name: "e", Version: 1000},
 	}
 
-	m.ReplaceWithDelete(protocol.LocalDeviceID, local1)
-	c0 := m.LocalVersion(protocol.LocalDeviceID)
+	m.ReplaceWithDelete("folder1", protocol.LocalDeviceID, local1)
+	c0 := m.LocalVersion("folder1", protocol.LocalDeviceID)
 
-	m.ReplaceWithDelete(protocol.LocalDeviceID, local2)
-	c1 := m.LocalVersion(protocol.LocalDeviceID)
+	m.ReplaceWithDelete("folder1", protocol.LocalDeviceID, local2)
+	c1 := m.LocalVersion("folder1", protocol.LocalDeviceID)
 	if !(c1 > c0) {
 		t.Fatal("Local version number should have incremented")
 	}
 
-	m.ReplaceWithDelete(protocol.LocalDeviceID, local2)
-	c2 := m.LocalVersion(protocol.LocalDeviceID)
+	m.ReplaceWithDelete("folder1", protocol.LocalDeviceID, local2)
+	c2 := m.LocalVersion("folder1", protocol.LocalDeviceID)
 	if c2 != c1 {
 		t.Fatal("Local version number should be unchanged")
 	}
@@ -763,21 +763,21 @@ func TestListDropFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s0 := db.NewFileSet("test0", ldb)
+	s0 := db.NewFileSet(ldb)
 	local1 := []protocol.FileInfo{
 		{Name: "a", Version: 1000},
 		{Name: "b", Version: 1000},
 		{Name: "c", Version: 1000},
 	}
-	s0.Replace(protocol.LocalDeviceID, local1)
+	s0.Replace("test0", protocol.LocalDeviceID, local1)
 
-	s1 := db.NewFileSet("test1", ldb)
+	s1 := db.NewFileSet(ldb)
 	local2 := []protocol.FileInfo{
 		{Name: "d", Version: 1002},
 		{Name: "e", Version: 1002},
 		{Name: "f", Version: 1002},
 	}
-	s1.Replace(remoteDevice0, local2)
+	s1.Replace("test1", remoteDevice0, local2)
 
 	// Check that we have both folders and their data is in the global list
 
@@ -785,10 +785,10 @@ func TestListDropFolder(t *testing.T) {
 	if actualFolderList := db.ListFolders(ldb); !reflect.DeepEqual(actualFolderList, expectedFolderList) {
 		t.Fatalf("FolderList mismatch\nE: %v\nA: %v", expectedFolderList, actualFolderList)
 	}
-	if l := len(globalList(s0)); l != 3 {
+	if l := len(globalList("test0", s0)); l != 3 {
 		t.Errorf("Incorrect global length %d != 3 for s0", l)
 	}
-	if l := len(globalList(s1)); l != 3 {
+	if l := len(globalList("test1", s1)); l != 3 {
 		t.Errorf("Incorrect global length %d != 3 for s1", l)
 	}
 
@@ -800,10 +800,10 @@ func TestListDropFolder(t *testing.T) {
 	if actualFolderList := db.ListFolders(ldb); !reflect.DeepEqual(actualFolderList, expectedFolderList) {
 		t.Fatalf("FolderList mismatch\nE: %v\nA: %v", expectedFolderList, actualFolderList)
 	}
-	if l := len(globalList(s0)); l != 3 {
+	if l := len(globalList("test0", s0)); l != 3 {
 		t.Errorf("Incorrect global length %d != 3 for s0", l)
 	}
-	if l := len(globalList(s1)); l != 0 {
+	if l := len(globalList("test1", s1)); l != 0 {
 		t.Errorf("Incorrect global length %d != 0 for s1", l)
 	}
 }
@@ -814,21 +814,21 @@ func TestGlobalNeedWithInvalid(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := db.NewFileSet("test1", ldb)
+	s := db.NewFileSet(ldb)
 
 	rem0 := fileList{
 		protocol.FileInfo{Name: "a", Version: 1002, Blocks: genBlocks(4)},
 		protocol.FileInfo{Name: "b", Version: 1002, Flags: protocol.FlagInvalid},
 		protocol.FileInfo{Name: "c", Version: 1002, Blocks: genBlocks(4)},
 	}
-	s.Replace(remoteDevice0, rem0)
+	s.Replace("folder1", remoteDevice0, rem0)
 
 	rem1 := fileList{
 		protocol.FileInfo{Name: "a", Version: 1002, Blocks: genBlocks(4)},
 		protocol.FileInfo{Name: "b", Version: 1002, Blocks: genBlocks(4)},
 		protocol.FileInfo{Name: "c", Version: 1002, Flags: protocol.FlagInvalid},
 	}
-	s.Replace(remoteDevice1, rem1)
+	s.Replace("folder1", remoteDevice1, rem1)
 
 	total := fileList{
 		// There's a valid copy of each file, so it should be merged
@@ -837,12 +837,12 @@ func TestGlobalNeedWithInvalid(t *testing.T) {
 		protocol.FileInfo{Name: "c", Version: 1002, Blocks: genBlocks(4)},
 	}
 
-	need := fileList(needList(s, protocol.LocalDeviceID))
+	need := fileList(needList("folder1", s, protocol.LocalDeviceID))
 	if fmt.Sprint(need) != fmt.Sprint(total) {
 		t.Errorf("Need incorrect;\n A: %v !=\n E: %v", need, total)
 	}
 
-	global := fileList(globalList(s))
+	global := fileList(globalList("folder1", s))
 	if fmt.Sprint(global) != fmt.Sprint(total) {
 		t.Errorf("Global incorrect;\n A: %v !=\n E: %v", global, total)
 	}
@@ -854,7 +854,7 @@ func TestLongPath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := db.NewFileSet("test", ldb)
+	s := db.NewFileSet(ldb)
 
 	var b bytes.Buffer
 	for i := 0; i < 100; i++ {
@@ -866,9 +866,9 @@ func TestLongPath(t *testing.T) {
 		{Name: string(name), Version: 1000},
 	}
 
-	s.ReplaceWithDelete(protocol.LocalDeviceID, local)
+	s.ReplaceWithDelete("folder1", protocol.LocalDeviceID, local)
 
-	gf := globalList(s)
+	gf := globalList("folder1", s)
 	if l := len(gf); l != 1 {
 		t.Fatalf("Incorrect len %d != 1 for global list", l)
 	}
