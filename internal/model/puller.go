@@ -285,10 +285,6 @@ func (p *Puller) pullerIteration(ignores *ignore.Matcher) int {
 		doneWg.Done()
 	}()
 
-	p.model.fmut.RLock()
-	folderFiles := p.model.folderFiles[p.folder]
-	p.model.fmut.RUnlock()
-
 	// !!!
 	// WithNeed takes a database snapshot (by necessity). By the time we've
 	// handled a bunch of files it might have become out of date and we might
@@ -299,7 +295,7 @@ func (p *Puller) pullerIteration(ignores *ignore.Matcher) int {
 
 	var deletions []protocol.FileInfo
 
-	folderFiles.WithNeed(p.folder, protocol.LocalDeviceID, func(intf db.FileIntf) bool {
+	p.model.fileSet.WithNeed(p.folder, protocol.LocalDeviceID, func(intf db.FileIntf) bool {
 
 		// Needed items are delivered sorted lexicographically. This isn't
 		// really optimal from a performance point of view - it would be
