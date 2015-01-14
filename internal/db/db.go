@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"path/filepath"
 
 	//_ "github.com/mxk/go-sqlite/sqlite3"
 	_ "github.com/mattn/go-sqlite3"
@@ -79,6 +80,20 @@ var preparedStmts = [][2]string{
 	{"selectNeed",
 		`SELECT Name, MAX(Version) Version FROM File WHERE Folder==? GROUP BY Name EXCEPT
 			SELECT Name, Version FROM File WHERE Device==? AND Folder==?`},
+}
+
+type MainDB struct {
+	dir string
+}
+
+func NewMainDB(dir string) *MainDB {
+	return &MainDB{
+		dir: dir,
+	}
+}
+
+func (m *MainDB) NewFileDB(name string) (*FileDB, error) {
+	return NewFileDB(filepath.Join(m.dir, name))
 }
 
 type FileDB struct {

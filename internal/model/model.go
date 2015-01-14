@@ -86,6 +86,7 @@ type service interface {
 type Model struct {
 	cfg             *config.Wrapper
 	db              *leveldb.DB
+	mainDB          *db.MainDB
 	fdb             *db.FileDB
 	finder          *db.BlockFinder
 	progressEmitter *ProgressEmitter
@@ -127,10 +128,11 @@ var (
 // NewModel creates and starts a new model. The model starts in read-only mode,
 // where it sends index information to connected peers and responds to requests
 // for file data without altering the local folder in any way.
-func NewModel(cfg *config.Wrapper, deviceName, clientName, clientVersion string, ldb *leveldb.DB) *Model {
+func NewModel(cfg *config.Wrapper, deviceName, clientName, clientVersion string, ldb *leveldb.DB, mainDB *db.MainDB) *Model {
 	m := &Model{
 		cfg:                cfg,
 		db:                 ldb,
+		mainDB:             mainDB,
 		deviceName:         deviceName,
 		clientName:         clientName,
 		clientVersion:      clientVersion,
@@ -1080,9 +1082,14 @@ func (m *Model) AddFolder(cfg config.FolderConfiguration) {
 		panic("cannot add empty folder id")
 	}
 
+	fdb, err := m.mainDB.NewFileDB(cfg.ID + ".db")
+	if err != nil {
+		panic(err)
+	}
+
 	m.fmut.Lock()
 	m.folderCfgs[cfg.ID] = cfg
-	m.folderFiles[cfg.ID] = db.NewFileSet(cfg.ID, m.db, m.fdb)
+	m.folderFiles[cfg.ID] = db.NewFileSet(cfg.ID, fdb)
 
 	m.folderDevices[cfg.ID] = make([]protocol.DeviceID, len(cfg.Devices))
 	for i, device := range cfg.Devices {

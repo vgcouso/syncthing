@@ -23,7 +23,6 @@ import (
 
 	"github.com/syncthing/protocol"
 	"github.com/syncthing/syncthing/internal/db"
-	"github.com/syndtr/goleveldb/leveldb"
 )
 
 func main() {
@@ -34,12 +33,12 @@ func main() {
 	device := flag.String("device", "", "Device ID (blank for global)")
 	flag.Parse()
 
-	ldb, err := leveldb.OpenFile(flag.Arg(0), nil)
+	ldb, err := db.NewFileDB("file:" + flag.Arg(0))
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	fs := db.NewFileSet(*folder, ldb, nil)
+	fs := db.NewFileSet(*folder, ldb)
 
 	if *device == "" {
 		log.Printf("*** Global index for folder %q", *folder)
