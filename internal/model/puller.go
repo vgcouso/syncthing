@@ -333,15 +333,6 @@ func (p *Puller) pullerIteration(ignores *ignore.Matcher) int {
 				dirDeletions = append(dirDeletions, file)
 			} else {
 				fileDeletions[file.Name] = file
-				df, ok := p.model.CurrentFolderFile(p.folder, file.Name)
-				// Local file can be already deleted, but with a lower version
-				// number, hence the deletion coming in again as part of
-				// WithNeed
-				if ok && !df.IsDeleted() {
-					// Put files into buckets per first hash
-					key := string(df.Blocks[0].Hash)
-					buckets[key] = append(buckets[key], df)
-				}
 			}
 		case file.IsDirectory() && !file.IsSymlink():
 			// A new or changed directory
@@ -355,6 +346,18 @@ func (p *Puller) pullerIteration(ignores *ignore.Matcher) int {
 		changed++
 		return true
 	})
+
+	for _, file := range fileDeletions {
+		if df, ok := p.model.CurrentFolderFile(p.folder, file.Name); ok && !df.IsDeleted() {
+			// Local file can be already deleted, but with a lower version
+			// number, hence the deletion coming in again as part of
+			// WithNeed
+
+			// Put files into buckets per first hash
+			key := string(df.Blocks[0].Hash)
+			buckets[key] = append(buckets[key], df)
+		}
+	}
 
 nextFile:
 	for {
