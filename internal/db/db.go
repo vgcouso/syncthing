@@ -2,19 +2,20 @@
 // Use of this source code is governed by an MIT-style license that can be
 // found in the LICENSE file.
 
-package files
+package db
 
 import (
 	"database/sql"
+	"fmt"
+	"log"
 
+	//_ "github.com/mxk/go-sqlite/sqlite3"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/syncthing/protocol"
 	"github.com/syncthing/syncthing/internal/lamport"
-	"github.com/syncthing/syncthing/internal/protocol"
 )
 
 var connectionSetup = []string{
-	`PRAGMA journal_mode = OFF`,
-	`PRAGMA journal_mode = WAL`,
 	`PRAGMA synchronous = NORMAL`,
 	`PRAGMA foreign_keys = ON`,
 }
@@ -23,14 +24,15 @@ var schemaSetup = []string{
 	`CREATE TABLE IF NOT EXISTS File (
 		ID INTEGER PRIMARY KEY AUTOINCREMENT,
 		Device BLOB NOT NULL,
-		Folder STRING NOT NULL,
-		Name STRING NOT NULL,
+		Folder TEXT NOT NULL,
+		Name TEXT NOT NULL,
 		Flags INTEGER NOT NULL,
 		Modified INTEGER NOT NULL,
 		Version INTEGER NOT NULL,
 		Updated BOOLEAN NOT NULL
 	)`,
 	`CREATE UNIQUE INDEX IF NOT EXISTS DeviceFolderNameIdx ON File (Device, Folder, Name)`,
+	`CREATE INDEX IF NOT EXISTS NameVersionIdx ON File (Name, Version)`,
 	`CREATE TABLE IF NOT EXISTS Block (
 		Hash BLOB NOT NULL,
 		FileID INTEGER NOT NULL REFERENCES File(ID) ON DELETE CASCADE,
@@ -49,12 +51,12 @@ var preparedStmts = [][2]string{
 	{"selectFileAllID",
 		"SELECT ID, Name, Flags, Modified, Version FROM File WHERE ID==?"},
 	{"selectFileAllVersion",
-		"SELECT ID, Name, Flags, Modified, Version FROM File WHERE Name==? AND Version==?"},
+		fmt.Sprintf("SELECT ID, Name, Flags, Modified, Version FROM File WHERE Name==? AND Version==? AND Flags & %d == 0", protocol.FlagInvalid)},
 	{"deleteFile",
 		"DELETE FROM File WHERE ID==?"},
 	{"updateFile",
 		"UPDATE File SET Updated=1 WHERE ID==?"},
-	{"deleteBlock",
+	{"deleteBlocksFor",
 		"DELETE FROM Block WHERE FileID==?"},
 	{"insertFile",
 		"INSERT INTO File (Device, Folder, Name, Flags, Modified, Version, Updated) VALUES (?, ?, ?, ?, ?, ?, 1)"},
@@ -65,34 +67,32 @@ var preparedStmts = [][2]string{
 	{"selectFileHave",
 		"SELECT ID, Name, Flags, Modified, Version FROM File WHERE Device==? AND Folder==?"},
 	{"selectFileGlobal",
-		"SELECT ID, Name, Flags, Modified, MAX(Version) FROM File WHERE Folder==? GROUP BY Name ORDER BY Name"},
+		fmt.Sprintf("SELECT ID, Name, Flags, Modified, MAX(Version) FROM File WHERE Folder==? AND Flags & %d == 0 GROUP BY Name ORDER BY Name", protocol.FlagInvalid)},
 	{"selectMaxID",
 		"SELECT MAX(ID) FROM File WHERE Device==? AND Folder==?"},
 	{"selectGlobalID",
-		"SELECT MAX(ID) FROM File WHERE Folder==? AND Name==?"},
+		fmt.Sprintf("SELECT MAX(ID) FROM File WHERE Folder==? AND Name==? AND Flags & %d == 0", protocol.FlagInvalid)},
 	{"selectMaxVersion",
 		"SELECT MAX(Version) FROM File WHERE Folder==? AND Name==?"},
 	{"selectWithVersion",
 		"SELECT Device, Flags FROM File WHERE Folder==? AND Name==? AND Version==?"},
 	{"selectNeed",
-		"SELECT Name, MAX(Version) Version FROM File WHERE Folder==? GROUP BY Name EXCEPT SELECT Name, Version FROM File WHERE Device==? AND Folder==?"},
+		`SELECT Name, MAX(Version) Version FROM File WHERE Folder==? GROUP BY Name EXCEPT
+			SELECT Name, Version FROM File WHERE Device==? AND Folder==?`},
 }
 
-type fileDB struct {
+type FileDB struct {
 	db    *sql.DB
 	stmts map[string]*sql.Stmt
 }
 
-func NewFileDB(name string) (*fileDB, error) {
-	db, err := sql.Open("sqlite3", "file:"+name)
+func NewFileDB(name string) (*FileDB, error) {
+	db, err := sql.Open("sqlite3", name)
 	if err != nil {
 		return nil, err
 	}
 
 	for _, stmt := range connectionSetup {
-		if debug {
-			l.Debugln(stmt)
-		}
 		_, err = db.Exec(stmt)
 		if err != nil {
 			return nil, err
@@ -105,9 +105,6 @@ func NewFileDB(name string) (*fileDB, error) {
 	}
 
 	for _, stmt := range schemaSetup {
-		if debug {
-			l.Debugln(stmt)
-		}
 		_, err = tx.Exec(stmt)
 		if err != nil {
 			return nil, err
@@ -118,16 +115,13 @@ func NewFileDB(name string) (*fileDB, error) {
 		return nil, err
 	}
 
-	fdb := fileDB{
+	fdb := FileDB{
 		db:    db,
 		stmts: make(map[string]*sql.Stmt),
 	}
 
 	for _, prep := range preparedStmts {
 		stmt, err := db.Prepare(prep[1])
-		if debug {
-			l.Debugln(prep[1])
-		}
 		if err != nil {
 			return nil, err
 		}
@@ -137,10 +131,10 @@ func NewFileDB(name string) (*fileDB, error) {
 	return &fdb, nil
 }
 
-func (db *fileDB) update(folder string, device protocol.DeviceID, fs []protocol.FileInfo) error {
+func (db *FileDB) update(folder string, device protocol.DeviceID, fs []protocol.FileInfo) error {
 	tx, err := db.db.Begin()
 	if err != nil {
-		l.Fatalln(err)
+		panic(err)
 	}
 
 	db.updateTx(folder, device, fs, tx)
@@ -148,7 +142,7 @@ func (db *fileDB) update(folder string, device protocol.DeviceID, fs []protocol.
 	return tx.Commit()
 }
 
-func (db *fileDB) updateTx(folder string, device protocol.DeviceID, fs []protocol.FileInfo, tx *sql.Tx) error {
+func (db *FileDB) updateTx(folder string, device protocol.DeviceID, fs []protocol.FileInfo, tx *sql.Tx) error {
 	for _, f := range fs {
 		var id int64
 		var version uint64
@@ -156,31 +150,40 @@ func (db *fileDB) updateTx(folder string, device protocol.DeviceID, fs []protoco
 		row := tx.Stmt(db.stmts["selectFileID"]).QueryRow(device[:], folder, f.Name)
 		err := row.Scan(&id, &version)
 
+		if f.IsInvalid() {
+			// Force an update
+			version = 0
+		}
+
 		if err == nil && version != f.Version {
 			_, err = tx.Stmt(db.stmts["deleteFile"]).Exec(id)
 			if err != nil {
-				l.Fatalln(err)
+				panic(err)
+			}
+			_, err = tx.Stmt(db.stmts["deleteBlocksFor"]).Exec(id)
+			if err != nil {
+				panic(err)
 			}
 		} else if err == nil && version == f.Version {
 			_, err = tx.Stmt(db.stmts["updateFile"]).Exec(id)
 			if err != nil {
-				l.Fatalln(err)
+				panic(err)
 			}
 		} else if err != nil && err != sql.ErrNoRows {
-			l.Fatalln(err)
+			panic(err)
 		}
 
 		if version != f.Version {
 			rs, err := tx.Stmt(db.stmts["insertFile"]).Exec(device[:], folder, f.Name, f.Flags, f.Modified, f.Version)
 			if err != nil {
-				l.Fatalln(err)
+				panic(err)
 			}
 			id, _ = rs.LastInsertId()
 
 			for _, b := range f.Blocks {
 				_, err = tx.Stmt(db.stmts["insertBlock"]).Exec(b.Hash, id, b.Size, b.Offset)
 				if err != nil {
-					l.Fatalln(err)
+					panic(err)
 				}
 			}
 		}
@@ -189,35 +192,39 @@ func (db *fileDB) updateTx(folder string, device protocol.DeviceID, fs []protoco
 	return nil
 }
 
-func (db *fileDB) updateWithDelete(folder string, device protocol.DeviceID, fs []protocol.FileInfo) error {
+func (db *FileDB) updateWithDelete(folder string, device protocol.DeviceID, fs []protocol.FileInfo) error {
 	tx, err := db.db.Begin()
 	if err != nil {
-		l.Fatalln(err)
+		panic(err)
 	}
 
 	_, err = tx.Exec("UPDATE File SET Updated==0 WHERE Device==? AND Folder==?", device[:], folder)
 	if err != nil {
-		l.Fatalln(err)
+		panic(err)
 	}
 
 	db.updateTx(folder, device, fs, tx)
 
 	rows, err := tx.Query("SELECT ID, Flags, Version FROM File WHERE Folder==? AND Device==? AND Updated==0", folder, device[:])
 	if err != nil && err != sql.ErrNoRows {
-		l.Fatalln(err)
+		panic(err)
 	}
 	for rows.Next() {
 		var id, version uint64
 		var flags uint32
 		err := rows.Scan(&id, &flags, &version)
 		if err != nil {
-			l.Fatalln(err)
+			panic(err)
 		}
 		if flags&protocol.FlagDeleted == 0 {
 			flags |= protocol.FlagDeleted
 			_, err = tx.Exec("UPDATE File SET Flags=?, Version=? WHERE ID==?", flags, lamport.Default.Tick(version), id)
 			if err != nil {
-				l.Fatalln(err)
+				panic(err)
+			}
+			_, err = tx.Exec("DELETE FROM Block WHERE FileID==?", id)
+			if err != nil {
+				panic(err)
 			}
 		}
 	}
@@ -225,10 +232,10 @@ func (db *fileDB) updateWithDelete(folder string, device protocol.DeviceID, fs [
 	return tx.Commit()
 }
 
-func (db *fileDB) replace(folder string, device protocol.DeviceID, fs []protocol.FileInfo) error {
+func (db *FileDB) replace(folder string, device protocol.DeviceID, fs []protocol.FileInfo) error {
 	tx, err := db.db.Begin()
 	if err != nil {
-		l.Fatalln(err)
+		panic(err)
 	}
 
 	db.replaceTx(folder, device, fs, tx)
@@ -236,10 +243,10 @@ func (db *fileDB) replace(folder string, device protocol.DeviceID, fs []protocol
 	return tx.Commit()
 }
 
-func (db *fileDB) replaceTx(folder string, device protocol.DeviceID, fs []protocol.FileInfo, tx *sql.Tx) error {
+func (db *FileDB) replaceTx(folder string, device protocol.DeviceID, fs []protocol.FileInfo, tx *sql.Tx) error {
 	_, err := tx.Exec("UPDATE File SET Updated==0 WHERE Device==? AND Folder==?", device[:], folder)
 	if err != nil {
-		l.Fatalln(err)
+		panic(err)
 	}
 
 	for _, f := range fs {
@@ -252,23 +259,27 @@ func (db *fileDB) replaceTx(folder string, device protocol.DeviceID, fs []protoc
 		if err == nil && version != f.Version {
 			_, err = tx.Stmt(db.stmts["deleteFile"]).Exec(id)
 			if err != nil {
-				l.Fatalln(err)
+				panic(err)
+			}
+			_, err = tx.Stmt(db.stmts["deleteBlocksFor"]).Exec(id)
+			if err != nil {
+				panic(err)
 			}
 		} else if err != nil && err != sql.ErrNoRows {
-			l.Fatalln(err)
+			panic(err)
 		}
 
 		if version != f.Version {
 			rs, err := tx.Stmt(db.stmts["insertFile"]).Exec(device[:], folder, f.Name, f.Flags, f.Modified, f.Version)
 			if err != nil {
-				l.Fatalln(err)
+				panic(err)
 			}
 			id, _ = rs.LastInsertId()
 
 			for _, b := range f.Blocks {
 				_, err = tx.Stmt(db.stmts["insertBlock"]).Exec(b.Hash, id, b.Size, b.Offset)
 				if err != nil {
-					l.Fatalln(err)
+					panic(err)
 				}
 			}
 		}
@@ -276,33 +287,33 @@ func (db *fileDB) replaceTx(folder string, device protocol.DeviceID, fs []protoc
 
 	_, err = tx.Exec("DELETE FROM File WHERE Folder==? AND Device==? AND Updated==0", folder, device[:])
 	if err != nil {
-		l.Fatalln(err)
+		panic(err)
 	}
 
 	return nil
 }
 
-func (db *fileDB) have(folder string, device protocol.DeviceID) []protocol.FileInfo {
+func (db *FileDB) have(folder string, device protocol.DeviceID, fn Iterator) {
 	rows, err := db.stmts["selectFileHave"].Query(device[:], folder)
 	if err == sql.ErrNoRows {
-		return nil
+		return
 	}
 	if err != nil {
-		l.Fatalln(err)
+		panic(err)
 	}
+	defer rows.Close()
 
-	var files []protocol.FileInfo
 	for rows.Next() {
 		var f protocol.FileInfo
 		var id int64
 		err = rows.Scan(&id, &f.Name, &f.Flags, &f.Modified, &f.Version)
 		if err != nil {
-			l.Fatalln(err)
+			panic(err)
 		}
 
 		brows, err := db.stmts["selectBlock"].Query(id)
 		if err != nil && err != sql.ErrNoRows {
-			l.Fatalln(err)
+			panic(err)
 		}
 
 		for brows.Next() {
@@ -311,33 +322,57 @@ func (db *fileDB) have(folder string, device protocol.DeviceID) []protocol.FileI
 			f.Blocks = append(f.Blocks, b)
 		}
 
-		files = append(files, f)
+		if !fn(f) {
+			return
+		}
 	}
-
-	return files
 }
 
-func (db *fileDB) global(folder string) []protocol.FileInfo {
+func (db *FileDB) haveTruncated(folder string, device protocol.DeviceID, fn Iterator) {
+	rows, err := db.stmts["selectFileHave"].Query(device[:], folder)
+	if err == sql.ErrNoRows {
+		return
+	}
+	if err != nil {
+		panic(err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var f FileInfoTruncated
+		var id int64
+		err = rows.Scan(&id, &f.Name, &f.Flags, &f.Modified, &f.Version)
+		if err != nil {
+			panic(err)
+		}
+
+		if !fn(f) {
+			return
+		}
+	}
+}
+
+func (db *FileDB) global(folder string, fn Iterator) {
 	rows, err := db.stmts["selectFileGlobal"].Query(folder)
 	if err == sql.ErrNoRows {
-		return nil
+		return
 	}
 	if err != nil {
-		l.Fatalln(err)
+		panic(err)
 	}
+	defer rows.Close()
 
-	var files []protocol.FileInfo
 	for rows.Next() {
 		var f protocol.FileInfo
 		var id int64
 		err = rows.Scan(&id, &f.Name, &f.Flags, &f.Modified, &f.Version)
 		if err != nil {
-			l.Fatalln(err)
+			panic(err)
 		}
 
 		brows, err := db.stmts["selectBlock"].Query(id)
 		if err != nil && err != sql.ErrNoRows {
-			l.Fatalln(err)
+			panic(err)
 		}
 
 		for brows.Next() {
@@ -346,41 +381,69 @@ func (db *fileDB) global(folder string) []protocol.FileInfo {
 			f.Blocks = append(f.Blocks, b)
 		}
 
-		files = append(files, f)
+		if !fn(f) {
+			return
+		}
 	}
-
-	return files
 }
 
-func (db *fileDB) need(folder string, device protocol.DeviceID) []protocol.FileInfo {
-	rows, err := db.stmts["selectNeed"].Query(folder, device[:], folder)
+func (db *FileDB) globalTruncated(folder string, fn Iterator) {
+	rows, err := db.stmts["selectFileGlobal"].Query(folder)
 	if err == sql.ErrNoRows {
-		return nil
+		return
 	}
 	if err != nil {
-		l.Fatalln(err)
+		panic(err)
 	}
+	defer rows.Close()
 
-	var files []protocol.FileInfo
+	for rows.Next() {
+		var f FileInfoTruncated
+		var id int64
+		err = rows.Scan(&id, &f.Name, &f.Flags, &f.Modified, &f.Version)
+		if err != nil {
+			panic(err)
+		}
+
+		if !fn(f) {
+			return
+		}
+	}
+}
+
+func (db *FileDB) need(folder string, device protocol.DeviceID, fn Iterator) {
+	rows, err := db.stmts["selectNeed"].Query(folder, device[:], folder)
+	if err == sql.ErrNoRows {
+		return
+	}
+	if err != nil {
+		panic(err)
+	}
+	defer rows.Close()
+
 	for rows.Next() {
 		var name string
 		var version uint64
 		var id int64
 		err = rows.Scan(&name, &version)
 		if err != nil {
-			l.Fatalln(err)
+			panic(err)
 		}
 
 		var f protocol.FileInfo
 		row := db.stmts["selectFileAllVersion"].QueryRow(name, version)
 		err = row.Scan(&id, &f.Name, &f.Flags, &f.Modified, &f.Version)
+		if err == sql.ErrNoRows {
+			// There was no file to need, maybe because they're all marked invalid
+			continue
+		}
 		if err != nil {
-			l.Fatalln(err)
+			panic(err)
 		}
 
 		brows, err := db.stmts["selectBlock"].Query(id)
 		if err != nil && err != sql.ErrNoRows {
-			l.Fatalln(err)
+			panic(err)
 		}
 
 		for brows.Next() {
@@ -389,28 +452,65 @@ func (db *fileDB) need(folder string, device protocol.DeviceID) []protocol.FileI
 			f.Blocks = append(f.Blocks, b)
 		}
 
-		files = append(files, f)
+		if !fn(f) {
+			return
+		}
 	}
-
-	return files
 }
 
-func (db *fileDB) get(folder string, device protocol.DeviceID, name string) protocol.FileInfo {
+func (db *FileDB) needTruncated(folder string, device protocol.DeviceID, fn Iterator) {
+	rows, err := db.stmts["selectNeed"].Query(folder, device[:], folder)
+	if err == sql.ErrNoRows {
+		return
+	}
+	if err != nil {
+		panic(err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var name string
+		var version uint64
+		var id int64
+		err = rows.Scan(&name, &version)
+		if err != nil {
+			panic(err)
+		}
+
+		log.Println(id, name, version)
+		var f FileInfoTruncated
+		row := db.stmts["selectFileAllVersion"].QueryRow(name, version)
+		err = row.Scan(&id, &f.Name, &f.Flags, &f.Modified, &f.Version)
+		if err == sql.ErrNoRows {
+			// There was no file to need, maybe because they're all marked invalid
+			continue
+		}
+		if err != nil {
+			panic(err)
+		}
+
+		if !fn(f) {
+			return
+		}
+	}
+}
+
+func (db *FileDB) get(folder string, device protocol.DeviceID, name string) (protocol.FileInfo, bool) {
 	var f protocol.FileInfo
 	var id int64
 
 	row := db.stmts["selectFileAll"].QueryRow(device[:], folder, name)
 	err := row.Scan(&id, &f.Name, &f.Flags, &f.Modified, &f.Version)
 	if err == sql.ErrNoRows {
-		return f
+		return f, false
 	}
 	if err != nil {
-		l.Fatalln(err)
+		panic(err)
 	}
 
 	brows, err := db.stmts["selectBlock"].Query(id)
 	if err != nil && err != sql.ErrNoRows {
-		l.Fatalln(err)
+		panic(err)
 	}
 
 	for brows.Next() {
@@ -419,35 +519,35 @@ func (db *fileDB) get(folder string, device protocol.DeviceID, name string) prot
 		f.Blocks = append(f.Blocks, b)
 	}
 
-	return f
+	return f, true
 }
 
-func (db *fileDB) getGlobal(folder, name string) protocol.FileInfo {
-	var f protocol.FileInfo
+func (db *FileDB) getGlobal(folder, name string) (protocol.FileInfo, bool) {
 	var gid *uint64
 
 	row := db.stmts["selectGlobalID"].QueryRow(folder, name)
 	err := row.Scan(&gid)
 	if gid == nil {
-		return f
+		return protocol.FileInfo{}, false
 	}
 	if err != nil {
-		l.Fatalln(err)
+		panic(err)
 	}
 
 	var id uint64
+	var f protocol.FileInfo
 	row = db.stmts["selectFileAllID"].QueryRow(*gid)
 	err = row.Scan(&id, &f.Name, &f.Flags, &f.Modified, &f.Version)
 	if err == sql.ErrNoRows {
-		return f
+		return f, false
 	}
 	if err != nil {
-		l.Fatalln(err)
+		panic(err)
 	}
 
 	brows, err := db.stmts["selectBlock"].Query(id)
 	if err != nil && err != sql.ErrNoRows {
-		l.Fatalln(err)
+		panic(err)
 	}
 
 	for brows.Next() {
@@ -456,10 +556,36 @@ func (db *fileDB) getGlobal(folder, name string) protocol.FileInfo {
 		f.Blocks = append(f.Blocks, b)
 	}
 
-	return f
+	return f, true
 }
 
-func (db *fileDB) maxID(folder string, device protocol.DeviceID) uint64 {
+func (db *FileDB) getGlobalTruncated(folder, name string) (FileInfoTruncated, bool) {
+	var gid *uint64
+
+	row := db.stmts["selectGlobalID"].QueryRow(folder, name)
+	err := row.Scan(&gid)
+	if gid == nil {
+		return FileInfoTruncated{}, false
+	}
+	if err != nil {
+		panic(err)
+	}
+
+	var id uint64
+	var f FileInfoTruncated
+	row = db.stmts["selectFileAllID"].QueryRow(*gid)
+	err = row.Scan(&id, &f.Name, &f.Flags, &f.Modified, &f.Version)
+	if err == sql.ErrNoRows {
+		return f, false
+	}
+	if err != nil {
+		panic(err)
+	}
+
+	return f, true
+}
+
+func (db *FileDB) maxID(folder string, device protocol.DeviceID) uint64 {
 	var id *uint64
 
 	row := db.stmts["selectMaxID"].QueryRow(device[:], folder)
@@ -468,12 +594,12 @@ func (db *fileDB) maxID(folder string, device protocol.DeviceID) uint64 {
 		return 0
 	}
 	if err != nil {
-		l.Fatalln(err)
+		panic(err)
 	}
 	return *id
 }
 
-func (db *fileDB) availability(folder, name string) []protocol.DeviceID {
+func (db *FileDB) availability(folder, name string) []protocol.DeviceID {
 	var version *int64
 	row := db.stmts["selectMaxVersion"].QueryRow(folder, name)
 	err := row.Scan(&version)
@@ -481,7 +607,7 @@ func (db *fileDB) availability(folder, name string) []protocol.DeviceID {
 		return nil
 	}
 	if err != nil {
-		l.Fatalln(err)
+		panic(err)
 	}
 
 	rows, err := db.stmts["selectWithVersion"].Query(folder, name, *version)
@@ -489,7 +615,7 @@ func (db *fileDB) availability(folder, name string) []protocol.DeviceID {
 		return nil
 	}
 	if err != nil {
-		l.Fatalln(err)
+		panic(err)
 	}
 
 	var available []protocol.DeviceID
@@ -498,7 +624,7 @@ func (db *fileDB) availability(folder, name string) []protocol.DeviceID {
 	for rows.Next() {
 		err = rows.Scan(&device, &flags)
 		if err != nil {
-			l.Fatalln(err)
+			panic(err)
 		}
 		if flags&(protocol.FlagDeleted|protocol.FlagInvalid) == 0 {
 			available = append(available, protocol.DeviceIDFromBytes(device))

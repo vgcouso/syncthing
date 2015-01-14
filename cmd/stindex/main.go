@@ -39,7 +39,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	fs := db.NewFileSet(*folder, ldb)
+	fs := db.NewFileSet(*folder, ldb, nil)
 
 	if *device == "" {
 		log.Printf("*** Global index for folder %q", *folder)

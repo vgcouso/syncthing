@@ -86,6 +86,7 @@ type service interface {
 type Model struct {
 	cfg             *config.Wrapper
 	db              *leveldb.DB
+	fdb             *db.FileDB
 	finder          *db.BlockFinder
 	progressEmitter *ProgressEmitter
 
@@ -1081,7 +1082,7 @@ func (m *Model) AddFolder(cfg config.FolderConfiguration) {
 
 	m.fmut.Lock()
 	m.folderCfgs[cfg.ID] = cfg
-	m.folderFiles[cfg.ID] = db.NewFileSet(cfg.ID, m.db)
+	m.folderFiles[cfg.ID] = db.NewFileSet(cfg.ID, m.db, m.fdb)
 
 	m.folderDevices[cfg.ID] = make([]protocol.DeviceID, len(cfg.Devices))
 	for i, device := range cfg.Devices {
