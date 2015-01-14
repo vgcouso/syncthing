@@ -970,6 +970,9 @@ func sendIndexes(conn protocol.Connection, folder string, fs *db.FileSet, ignore
 		}
 
 		minLocalVer, err = sendIndexTo(false, minLocalVer, conn, folder, fs, ignores)
+		if debug {
+			l.Debugf("sendIndexes for %s-%s/%q new local ver: %d", deviceID, name, folder, minLocalVer)
+		}
 	}
 
 	if debug {

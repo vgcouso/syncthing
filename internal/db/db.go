@@ -7,7 +7,6 @@ package db
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"path/filepath"
 
 	//_ "github.com/mxk/go-sqlite/sqlite3"
@@ -322,6 +321,7 @@ func (db *FileDB) have(folder string, device protocol.DeviceID, fn Iterator) {
 		var f protocol.FileInfo
 		var id int64
 		err = rows.Scan(&id, &f.Name, &f.Flags, &f.Modified, &f.Version)
+		f.LocalVersion = uint64(id)
 		if err != nil {
 			panic(err)
 		}
@@ -357,6 +357,7 @@ func (db *FileDB) haveTruncated(folder string, device protocol.DeviceID, fn Iter
 		var f FileInfoTruncated
 		var id int64
 		err = rows.Scan(&id, &f.Name, &f.Flags, &f.Modified, &f.Version)
+		f.LocalVersion = uint64(id)
 		if err != nil {
 			panic(err)
 		}
@@ -381,6 +382,7 @@ func (db *FileDB) global(folder string, fn Iterator) {
 		var f protocol.FileInfo
 		var id int64
 		err = rows.Scan(&id, &f.Name, &f.Flags, &f.Modified, &f.Version)
+		f.LocalVersion = uint64(id)
 		if err != nil {
 			panic(err)
 		}
@@ -416,6 +418,7 @@ func (db *FileDB) globalTruncated(folder string, fn Iterator) {
 		var f FileInfoTruncated
 		var id int64
 		err = rows.Scan(&id, &f.Name, &f.Flags, &f.Modified, &f.Version)
+		f.LocalVersion = uint64(id)
 		if err != nil {
 			panic(err)
 		}
@@ -448,6 +451,7 @@ func (db *FileDB) need(folder string, device protocol.DeviceID, fn Iterator) {
 		var f protocol.FileInfo
 		row := db.stmts["selectFileAllVersion"].QueryRow(name, version)
 		err = row.Scan(&id, &f.Name, &f.Flags, &f.Modified, &f.Version)
+		f.LocalVersion = uint64(id)
 		if err == sql.ErrNoRows {
 			// There was no file to need, maybe because they're all marked invalid
 			continue
@@ -492,10 +496,10 @@ func (db *FileDB) needTruncated(folder string, device protocol.DeviceID, fn Iter
 			panic(err)
 		}
 
-		log.Println(id, name, version)
 		var f FileInfoTruncated
 		row := db.stmts["selectFileAllVersion"].QueryRow(name, version)
 		err = row.Scan(&id, &f.Name, &f.Flags, &f.Modified, &f.Version)
+		f.LocalVersion = uint64(id)
 		if err == sql.ErrNoRows {
 			// There was no file to need, maybe because they're all marked invalid
 			continue
@@ -512,18 +516,19 @@ func (db *FileDB) needTruncated(folder string, device protocol.DeviceID, fn Iter
 
 func (db *FileDB) get(folder string, device protocol.DeviceID, name string) (protocol.FileInfo, bool) {
 	var f protocol.FileInfo
-	var id int64
+	var id sql.NullInt64
 
 	row := db.stmts["selectFileAll"].QueryRow(device[:], folder, name)
 	err := row.Scan(&id, &f.Name, &f.Flags, &f.Modified, &f.Version)
-	if err == sql.ErrNoRows {
-		return f, false
+	f.LocalVersion = uint64(id.Int64)
+	if !id.Valid {
+		return protocol.FileInfo{}, false
 	}
 	if err != nil {
 		panic(err)
 	}
 
-	brows, err := db.stmts["selectBlock"].Query(id)
+	brows, err := db.stmts["selectBlock"].Query(id.Int64)
 	if err != nil && err != sql.ErrNoRows {
 		panic(err)
 	}
@@ -538,29 +543,29 @@ func (db *FileDB) get(folder string, device protocol.DeviceID, name string) (pro
 }
 
 func (db *FileDB) getGlobal(folder, name string) (protocol.FileInfo, bool) {
-	var gid *uint64
+	var id sql.NullInt64
 
 	row := db.stmts["selectGlobalID"].QueryRow(folder, name)
-	err := row.Scan(&gid)
-	if gid == nil {
+	err := row.Scan(&id)
+	if !id.Valid {
 		return protocol.FileInfo{}, false
 	}
 	if err != nil {
 		panic(err)
 	}
 
-	var id uint64
 	var f protocol.FileInfo
-	row = db.stmts["selectFileAllID"].QueryRow(*gid)
+	row = db.stmts["selectFileAllID"].QueryRow(id.Int64)
 	err = row.Scan(&id, &f.Name, &f.Flags, &f.Modified, &f.Version)
-	if err == sql.ErrNoRows {
-		return f, false
+	f.LocalVersion = uint64(id.Int64)
+	if !id.Valid {
+		return protocol.FileInfo{}, false
 	}
 	if err != nil {
 		panic(err)
 	}
 
-	brows, err := db.stmts["selectBlock"].Query(id)
+	brows, err := db.stmts["selectBlock"].Query(id.Int64)
 	if err != nil && err != sql.ErrNoRows {
 		panic(err)
 	}
@@ -575,22 +580,22 @@ func (db *FileDB) getGlobal(folder, name string) (protocol.FileInfo, bool) {
 }
 
 func (db *FileDB) getGlobalTruncated(folder, name string) (FileInfoTruncated, bool) {
-	var gid *uint64
+	var id sql.NullInt64
 
 	row := db.stmts["selectGlobalID"].QueryRow(folder, name)
-	err := row.Scan(&gid)
-	if gid == nil {
+	err := row.Scan(&id)
+	if !id.Valid {
 		return FileInfoTruncated{}, false
 	}
 	if err != nil {
 		panic(err)
 	}
 
-	var id uint64
 	var f FileInfoTruncated
-	row = db.stmts["selectFileAllID"].QueryRow(*gid)
+	row = db.stmts["selectFileAllID"].QueryRow(id)
 	err = row.Scan(&id, &f.Name, &f.Flags, &f.Modified, &f.Version)
-	if err == sql.ErrNoRows {
+	f.LocalVersion = uint64(id.Int64)
+	if !id.Valid {
 		return f, false
 	}
 	if err != nil {
@@ -601,31 +606,33 @@ func (db *FileDB) getGlobalTruncated(folder, name string) (FileInfoTruncated, bo
 }
 
 func (db *FileDB) maxID(folder string, device protocol.DeviceID) uint64 {
-	var id *uint64
+	var id sql.NullInt64
 
 	row := db.stmts["selectMaxID"].QueryRow(device[:], folder)
 	err := row.Scan(&id)
-	if id == nil {
+	if !id.Valid {
+		l.Debugln(folder, device, "none")
 		return 0
 	}
 	if err != nil {
 		panic(err)
 	}
-	return *id
+	l.Debugln(folder, device, id)
+	return uint64(id.Int64)
 }
 
 func (db *FileDB) availability(folder, name string) []protocol.DeviceID {
-	var version *int64
+	var version int64
 	row := db.stmts["selectMaxVersion"].QueryRow(folder, name)
 	err := row.Scan(&version)
-	if version == nil {
+	if err == sql.ErrNoRows {
 		return nil
 	}
 	if err != nil {
 		panic(err)
 	}
 
-	rows, err := db.stmts["selectWithVersion"].Query(folder, name, *version)
+	rows, err := db.stmts["selectWithVersion"].Query(folder, name, version)
 	if err == sql.ErrNoRows {
 		return nil
 	}

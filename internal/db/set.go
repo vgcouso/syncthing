@@ -30,12 +30,11 @@ import (
 )
 
 type FileSet struct {
-	localVersion map[protocol.DeviceID]uint64
-	mu           sync.RWMutex
-	folder       string
-	db           *leveldb.DB
-	fileDB       *FileDB
-	blockmap     *BlockMap
+	mu       sync.RWMutex
+	folder   string
+	db       *leveldb.DB
+	fileDB   *FileDB
+	blockmap *BlockMap
 }
 
 // FileIntf is the set of methods implemented by both protocol.FileInfo and
@@ -56,29 +55,12 @@ type Iterator func(f FileIntf) bool
 
 func NewFileSet(folder string, db *FileDB) *FileSet {
 	var s = FileSet{
-		localVersion: make(map[protocol.DeviceID]uint64),
-		folder:       folder,
-		fileDB:       db,
+		folder: folder,
+		fileDB: db,
 		//blockmap:     NewBlockMap(db, folder),
 	}
 
-	/*
-		ldbCheckGlobals(db, []byte(folder))
-
-		var deviceID protocol.DeviceID
-		ldbWithAllFolderTruncated(db, []byte(folder), func(device []byte, f FileInfoTruncated) bool {
-			copy(deviceID[:], device)
-			if f.LocalVersion > s.localVersion[deviceID] {
-				s.localVersion[deviceID] = f.LocalVersion
-			}
-			lamport.Default.Tick(f.Version)
-			return true
-		})
-	*/
-	if debug {
-		l.Debugf("loaded localVersion for %q: %#v", folder, s.localVersion)
-	}
-	clock(s.localVersion[protocol.LocalDeviceID])
+	clock(s.fileDB.maxID(folder, protocol.LocalDeviceID))
 
 	return &s
 }

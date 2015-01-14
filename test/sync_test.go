@@ -81,10 +81,7 @@ func testSyncCluster(t *testing.T) {
 
 	*/
 	log.Println("Cleaning...")
-	err := removeAll("s1", "s12-1",
-		"s2", "s12-2", "s23-2",
-		"s3", "s23-3",
-		"h1/index", "h2/index", "h3/index")
+	err := removeAll("s?", "s??-?", "h?/index", "h?/*.db")
 	if err != nil {
 		t.Fatal(err)
 	}

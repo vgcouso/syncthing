@@ -17,3 +17,4 @@ s4d
 http
 index
 *.syncthing-reset*
+*.db

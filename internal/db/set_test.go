@@ -755,13 +755,13 @@ func TestLocalVersion(t *testing.T) {
 	m.ReplaceWithDelete(protocol.LocalDeviceID, local2)
 	c1 := m.LocalVersion(protocol.LocalDeviceID)
 	if !(c1 > c0) {
-		t.Fatal("Local version number should have incremented")
+		t.Error("Local version number should have incremented")
 	}
 
 	m.ReplaceWithDelete(protocol.LocalDeviceID, local2)
 	c2 := m.LocalVersion(protocol.LocalDeviceID)
 	if c2 != c1 {
-		t.Fatal("Local version number should be unchanged")
+		t.Error("Local version number should be unchanged")
 	}
 }
 
