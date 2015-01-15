@@ -30,7 +30,7 @@ import (
 )
 
 type FileSet struct {
-	mu       sync.RWMutex
+	mu       sync.Mutex
 	folder   string
 	db       *leveldb.DB
 	fileDB   *FileDB
@@ -115,9 +115,6 @@ func (s *FileSet) WithNeed(device protocol.DeviceID, fn Iterator) {
 		l.Debugf("%s WithNeed(%v)", s.folder, device)
 	}
 
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	s.fileDB.need(s.folder, device, nativeFileIterator(fn))
 }
 
@@ -125,9 +122,6 @@ func (s *FileSet) WithNeedTruncated(device protocol.DeviceID, fn Iterator) {
 	if debug {
 		l.Debugf("%s WithNeedTruncated(%v)", s.folder, device)
 	}
-
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 
 	s.fileDB.needTruncated(s.folder, device, nativeFileIterator(fn))
 }
@@ -137,9 +131,6 @@ func (s *FileSet) WithHave(device protocol.DeviceID, fn Iterator) {
 		l.Debugf("%s WithHave(%v)", s.folder, device)
 	}
 
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	s.fileDB.have(s.folder, device, nativeFileIterator(fn))
 }
 
@@ -147,9 +138,6 @@ func (s *FileSet) WithHaveTruncated(device protocol.DeviceID, fn Iterator) {
 	if debug {
 		l.Debugf("%s WithHaveTruncated(%v)", s.folder, device)
 	}
-
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 
 	s.fileDB.haveTruncated(s.folder, device, nativeFileIterator(fn))
 }
@@ -159,9 +147,6 @@ func (s *FileSet) WithGlobal(fn Iterator) {
 		l.Debugf("%s WithGlobal()", s.folder)
 	}
 
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	s.fileDB.global(s.folder, nativeFileIterator(fn))
 }
 
@@ -170,50 +155,32 @@ func (s *FileSet) WithGlobalTruncated(fn Iterator) {
 		l.Debugf("%s WithGlobalTruncated()", s.folder)
 	}
 
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	s.fileDB.globalTruncated(s.folder, nativeFileIterator(fn))
 }
 
 func (s *FileSet) Get(device protocol.DeviceID, file string) (protocol.FileInfo, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	f, ok := s.fileDB.get(s.folder, device, osutil.NormalizedFilename(file))
 	f.Name = osutil.NativeFilename(f.Name)
 	return f, ok
 }
 
 func (s *FileSet) GetGlobal(file string) (protocol.FileInfo, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	f, ok := s.fileDB.getGlobal(s.folder, osutil.NormalizedFilename(file))
 	f.Name = osutil.NativeFilename(f.Name)
 	return f, ok
 }
 
 func (s *FileSet) GetGlobalTruncated(file string) (FileInfoTruncated, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	f, ok := s.fileDB.getGlobalTruncated(s.folder, osutil.NormalizedFilename(file))
 	f.Name = osutil.NativeFilename(f.Name)
 	return f, ok
 }
 
 func (s *FileSet) Availability(file string) []protocol.DeviceID {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	return s.fileDB.availability(s.folder, file)
 }
 
 func (s *FileSet) LocalVersion(device protocol.DeviceID) uint64 {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	return s.fileDB.maxID(s.folder, device)
 }
 
