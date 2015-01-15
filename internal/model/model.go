@@ -17,6 +17,7 @@ package model
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -84,6 +85,7 @@ type service interface {
 }
 
 type Model struct {
+	myID            protocol.DeviceID
 	cfg             *config.Wrapper
 	db              *leveldb.DB
 	finder          *db.BlockFinder
@@ -126,8 +128,9 @@ var (
 // NewModel creates and starts a new model. The model starts in read-only mode,
 // where it sends index information to connected peers and responds to requests
 // for file data without altering the local folder in any way.
-func NewModel(cfg *config.Wrapper, deviceName, clientName, clientVersion string, ldb *leveldb.DB) *Model {
+func NewModel(myID protocol.DeviceID, cfg *config.Wrapper, deviceName, clientName, clientVersion string, ldb *leveldb.DB) *Model {
 	m := &Model{
+		myID:               myID,
 		cfg:                cfg,
 		db:                 ldb,
 		deviceName:         deviceName,
@@ -672,6 +675,24 @@ func (m *Model) ClusterConfig(deviceID protocol.DeviceID, cm protocol.ClusterCon
 	if changed {
 		m.cfg.Save()
 	}
+
+	// Grab the initial LocalVersion numbers from the peer
+	maxLocalVersion := make(map[string]uint64)
+	m.fmut.RLock()
+nextFolder:
+	for _, folder := range cm.Folders {
+		for _, device := range folder.Devices {
+			if bytes.Compare(device.ID, m.myID[:]) == 0 {
+				maxLocalVersion[folder.ID] = device.MaxLocalVersion
+				continue nextFolder
+			}
+		}
+	}
+
+	for _, folder := range m.deviceFolders[deviceID] {
+		go sendIndexes(m.protoConn[deviceID], folder, m.folderFiles[folder], m.folderIgnores[folder], maxLocalVersion[folder])
+	}
+	m.fmut.RUnlock()
 }
 
 // Close removes the peer from the model and closes the underlying connection if possible.
@@ -684,12 +705,6 @@ func (m *Model) Close(device protocol.DeviceID, err error) {
 	})
 
 	m.pmut.Lock()
-	m.fmut.RLock()
-	for _, folder := range m.deviceFolders[device] {
-		m.folderFiles[folder].Replace(device, nil)
-	}
-	m.fmut.RUnlock()
-
 	conn, ok := m.rawConn[device]
 	if ok {
 		if conn, ok := conn.(*tls.Conn); ok {
@@ -904,13 +919,6 @@ func (m *Model) AddConnection(rawConn io.Closer, protoConn protocol.Connection) 
 
 	cm := m.clusterConfig(deviceID)
 	protoConn.ClusterConfig(cm)
-
-	m.fmut.RLock()
-	for _, folder := range m.deviceFolders[deviceID] {
-		fs := m.folderFiles[folder]
-		go sendIndexes(protoConn, folder, fs, m.folderIgnores[folder])
-	}
-	m.fmut.RUnlock()
 	m.pmut.Unlock()
 
 	m.deviceWasSeen(deviceID)
@@ -949,7 +957,7 @@ func (m *Model) receivedFile(folder, filename string) {
 	m.folderStatRef(folder).ReceivedFile(filename)
 }
 
-func sendIndexes(conn protocol.Connection, folder string, fs *db.FileSet, ignores *ignore.Matcher) {
+func sendIndexes(conn protocol.Connection, folder string, fs *db.FileSet, ignores *ignore.Matcher, initialLocalVersion uint64) {
 	deviceID := conn.ID()
 	name := conn.Name()
 	var err error
@@ -958,7 +966,7 @@ func sendIndexes(conn protocol.Connection, folder string, fs *db.FileSet, ignore
 		l.Debugf("sendIndexes for %s-%s/%q starting", deviceID, name, folder)
 	}
 
-	minLocalVer, err := sendIndexTo(true, 0, conn, folder, fs, ignores)
+	minLocalVer, err := sendIndexTo(initialLocalVersion, conn, folder, fs, ignores)
 
 	for err == nil {
 		time.Sleep(5 * time.Second)
@@ -966,7 +974,7 @@ func sendIndexes(conn protocol.Connection, folder string, fs *db.FileSet, ignore
 			continue
 		}
 
-		minLocalVer, err = sendIndexTo(false, minLocalVer, conn, folder, fs, ignores)
+		minLocalVer, err = sendIndexTo(minLocalVer, conn, folder, fs, ignores)
 	}
 
 	if debug {
@@ -974,12 +982,13 @@ func sendIndexes(conn protocol.Connection, folder string, fs *db.FileSet, ignore
 	}
 }
 
-func sendIndexTo(initial bool, minLocalVer uint64, conn protocol.Connection, folder string, fs *db.FileSet, ignores *ignore.Matcher) (uint64, error) {
+func sendIndexTo(minLocalVer uint64, conn protocol.Connection, folder string, fs *db.FileSet, ignores *ignore.Matcher) (uint64, error) {
 	deviceID := conn.ID()
 	name := conn.Name()
 	batch := make([]protocol.FileInfo, 0, indexBatchSize)
 	currentBatchSize := 0
 	maxLocalVer := uint64(0)
+	initial := minLocalVer == 0
 	var err error
 
 	fs.WithHave(protocol.LocalDeviceID, func(fi db.FileIntf) bool {
@@ -1273,8 +1282,9 @@ func (m *Model) clusterConfig(device protocol.DeviceID) protocol.ClusterConfigMe
 			device := device
 			// TODO: Set read only bit when relevant
 			cn := protocol.Device{
-				ID:    device[:],
-				Flags: protocol.FlagShareTrusted,
+				ID:              device[:],
+				Flags:           protocol.FlagShareTrusted,
+				MaxLocalVersion: m.folderFiles[folder].LocalVersion(device),
 			}
 			if deviceCfg := m.cfg.Devices()[device]; deviceCfg.Introducer {
 				cn.Flags |= protocol.FlagIntroducer

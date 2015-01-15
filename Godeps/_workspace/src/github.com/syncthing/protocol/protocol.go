@@ -289,17 +289,12 @@ func (c *rawConnection) readerLoop() (err error) {
 
 			switch hdr.msgType {
 			case messageTypeIndex:
-				if c.state < stateCCRcvd {
-					return fmt.Errorf("protocol error: index message in state %d", c.state)
-				}
 				c.handleIndex(msg)
 				c.state = stateIdxRcvd
 
 			case messageTypeIndexUpdate:
-				if c.state < stateIdxRcvd {
-					return fmt.Errorf("protocol error: index update message in state %d", c.state)
-				}
 				c.handleIndexUpdate(msg)
+				c.state = stateIdxRcvd
 			}
 
 		case RequestMessage:
