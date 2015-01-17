@@ -53,6 +53,7 @@ const (
 	keyTypeDevice = iota
 	keyTypeGlobal
 	keyTypeBlock
+	keyTypeNeed
 )
 
 type fileVersion struct {
@@ -162,6 +163,22 @@ func globalKeyFolder(key []byte) []byte {
 		return folder
 	}
 	return folder[:izero]
+}
+
+// needKey returns a byte slice encoding the following information:
+//	   keyTypeNeed (1 byte)
+//	   folder (64 bytes)
+//	   name (variable size)
+func needKey(folder, file []byte) []byte {
+	/// XXX: TODO: Share code with globalKey
+	k := make([]byte, 1+64+len(file))
+	k[0] = keyTypeNeed
+	if len(folder) > 64 {
+		panic("folder name too long")
+	}
+	copy(k[1:], []byte(folder))
+	copy(k[1+64:], []byte(file))
+	return k
 }
 
 type deletionHandler func(db dbReader, batch dbWriter, folder, device, name []byte, dbi iterator.Iterator) uint64
@@ -436,6 +453,12 @@ func ldbUpdateGlobal(db dbReader, batch dbWriter, folder, device, file []byte, v
 	}
 
 	var fl versionList
+	var currentLocalVersion uint64
+
+	if bytes.Compare(device, protocol.LocalDeviceID[:]) == 0 {
+		currentLocalVersion = version
+	}
+
 	nv := fileVersion{
 		device:  device,
 		version: version,
@@ -446,36 +469,59 @@ func ldbUpdateGlobal(db dbReader, batch dbWriter, folder, device, file []byte, v
 			panic(err)
 		}
 
-		for i := range fl.versions {
-			if bytes.Compare(fl.versions[i].device, device) == 0 {
-				if fl.versions[i].version == version {
+		// Remove the old version for this device from the list, if it's in
+		// there. If we find the same version as we're going to insert,
+		// instead return directly. Also find out what the version number for
+		// the local device is, while we're anyway iterating.
+
+		for i, v := range fl.versions {
+			if bytes.Compare(v.device, device) == 0 {
+				if v.version == version {
 					// No need to do anything
 					return false
 				}
 				fl.versions = append(fl.versions[:i], fl.versions[i+1:]...)
-				break
+			}
+			if currentLocalVersion == 0 && bytes.Compare(v.device, protocol.LocalDeviceID[:]) == 0 {
+				currentLocalVersion = v.version
 			}
 		}
 	}
 
+	// Insert the new version in the right place (sorted by version,
+	// descending).
+
+	inserted := false
 	for i := range fl.versions {
 		if fl.versions[i].version <= version {
 			t := append(fl.versions, fileVersion{})
 			copy(t[i+1:], t[i:])
 			t[i] = nv
 			fl.versions = t
-			goto done
+			inserted = true
+			break
 		}
 	}
+	if !inserted {
+		fl.versions = append(fl.versions, nv)
+	}
 
-	fl.versions = append(fl.versions, nv)
-
-done:
 	if debugDB {
 		l.Debugf("batch.Put %p %x", batch, gk)
 		l.Debugf("new global after update: %v", fl)
 	}
-	batch.Put(gk, fl.MustMarshalXDR())
+
+	bs := fl.MustMarshalXDR()
+	batch.Put(gk, bs)
+
+	// If the head version is newer than the local device version, write a
+	// need record for this file. Otherwise, remove any existing need record.
+
+	if currentLocalVersion < fl.versions[0].version {
+		batch.Put(needKey(folder, file), bs)
+	} else {
+		batch.Delete(needKey(folder, file))
+	}
 
 	return true
 }
@@ -502,10 +548,13 @@ func ldbRemoveFromGlobal(db dbReader, batch dbWriter, folder, device, file []byt
 		panic(err)
 	}
 
-	for i := range fl.versions {
-		if bytes.Compare(fl.versions[i].device, device) == 0 {
+	var currentLocalVersion uint64
+	for i, v := range fl.versions {
+		if bytes.Compare(v.device, device) == 0 {
 			fl.versions = append(fl.versions[:i], fl.versions[i+1:]...)
-			break
+		}
+		if bytes.Compare(v.device, protocol.LocalDeviceID[:]) == 0 {
+			currentLocalVersion = v.version
 		}
 	}
 
@@ -514,12 +563,24 @@ func ldbRemoveFromGlobal(db dbReader, batch dbWriter, folder, device, file []byt
 			l.Debugf("batch.Delete %p %x", batch, gk)
 		}
 		batch.Delete(gk)
+		batch.Delete(needKey(folder, file))
 	} else {
 		if debugDB {
 			l.Debugf("batch.Put %p %x", batch, gk)
 			l.Debugf("new global after remove: %v", fl)
 		}
-		batch.Put(gk, fl.MustMarshalXDR())
+
+		bs := fl.MustMarshalXDR()
+		batch.Put(gk, bs)
+
+		// If the head version is newer than the local device version, write a
+		// need record for this file. Otherwise, remove any existing need record.
+
+		if currentLocalVersion < fl.versions[0].version {
+			batch.Put(needKey(folder, file), bs)
+		} else {
+			batch.Delete(needKey(folder, file))
+		}
 	}
 }
 
@@ -770,7 +831,7 @@ func ldbWithNeed(db *leveldb.DB, folder, device []byte, truncate bool, fn Iterat
 		snap.Release()
 	}()
 
-	dbi := snap.NewIterator(util.BytesPrefix(globalKey(folder, nil)), nil)
+	dbi := snap.NewIterator(util.BytesPrefix(needKey(folder, nil)), nil)
 	defer dbi.Release()
 
 outer:
@@ -780,76 +841,68 @@ outer:
 		if err != nil {
 			panic(err)
 		}
-		if len(vl.versions) == 0 {
-			l.Debugln(dbi.Key())
-			panic("no versions?")
-		}
 
-		have := false // If we have the file, any version
-		need := false // If we have a lower version of the file
-		var haveVersion uint64
+		name := globalKeyName(dbi.Key())
+		needVersion := vl.versions[0].version
+
+		have := false // Do we already have a version of this file, any version?
 		for _, v := range vl.versions {
-			if bytes.Compare(v.device, device) == 0 {
+			if bytes.Compare(v.device, protocol.LocalDeviceID[:]) == 0 {
 				have = true
-				haveVersion = v.version
-				need = v.version < vl.versions[0].version
 				break
 			}
 		}
 
-		if need || !have {
-			name := globalKeyName(dbi.Key())
-			needVersion := vl.versions[0].version
-		inner:
-			for i := range vl.versions {
-				if vl.versions[i].version != needVersion {
-					// We haven't found a valid copy of the file with the needed version.
-					continue outer
-				}
-				fk := deviceKey(folder, vl.versions[i].device, name)
-				if debugDB {
-					l.Debugf("snap.Get %p %x", snap, fk)
-				}
-				bs, err := snap.Get(fk, nil)
-				if err != nil {
-					var id protocol.DeviceID
-					copy(id[:], device)
-					l.Debugf("device: %v", id)
-					l.Debugf("need: %v, have: %v", need, have)
-					l.Debugf("key: %q (%x)", dbi.Key(), dbi.Key())
-					l.Debugf("vl: %v", vl)
-					l.Debugf("i: %v", i)
-					l.Debugf("fk: %q (%x)", fk, fk)
-					l.Debugf("name: %q (%x)", name, name)
-					panic(err)
-				}
-
-				gf, err := unmarshalTrunc(bs, truncate)
-				if err != nil {
-					panic(err)
-				}
-
-				if gf.IsInvalid() {
-					// The file is marked invalid for whatever reason, don't use it.
-					continue inner
-				}
-
-				if gf.IsDeleted() && !have {
-					// We don't need deleted files that we don't have
-					continue outer
-				}
-
-				if debugDB {
-					l.Debugf("need folder=%q device=%v name=%q need=%v have=%v haveV=%d globalV=%d", folder, protocol.DeviceIDFromBytes(device), name, need, have, haveVersion, vl.versions[0].version)
-				}
-
-				if cont := fn(gf); !cont {
-					return
-				}
-
-				// This file is handled, no need to look further in the version list
+	inner:
+		for i := range vl.versions {
+			if vl.versions[i].version != needVersion {
+				// We haven't found a valid copy of the file with the needed version.
 				continue outer
 			}
+
+			fk := deviceKey(folder, vl.versions[i].device, name)
+			if debugDB {
+				l.Debugf("snap.Get %p %x", snap, fk)
+			}
+
+			bs, err := snap.Get(fk, nil)
+			if err != nil {
+				var id protocol.DeviceID
+				copy(id[:], device)
+				l.Debugf("device: %v", id)
+				l.Debugf("key: %q (%x)", dbi.Key(), dbi.Key())
+				l.Debugf("vl: %v", vl)
+				l.Debugf("i: %v", i)
+				l.Debugf("fk: %q (%x)", fk, fk)
+				l.Debugf("name: %q (%x)", name, name)
+				panic(err)
+			}
+
+			gf, err := unmarshalTrunc(bs, truncate)
+			if err != nil {
+				panic(err)
+			}
+
+			if gf.IsInvalid() {
+				// The file is marked invalid for whatever reason, don't use it.
+				continue inner
+			}
+
+			if gf.IsDeleted() && !have {
+				// We don't need deleted files that we don't have
+				continue outer
+			}
+
+			if debugDB {
+				l.Debugf("need folder=%q device=%v name=%q globalV=%d", folder, protocol.DeviceIDFromBytes(device), name, vl.versions[0].version)
+			}
+
+			if cont := fn(gf); !cont {
+				return
+			}
+
+			// This file is handled, no need to look further in the version list
+			continue outer
 		}
 	}
 }
