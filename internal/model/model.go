@@ -1209,7 +1209,7 @@ func (m *Model) ScanFolderSub(folder, sub string) error {
 			}
 
 			if len(batch) == batchSize {
-				fs.Update(protocol.LocalDeviceID, batch)
+				fs.Update(protocol.LocalDeviceID, batch) // XXX: LOCK FAIL
 				batch = batch[:0]
 			}
 
@@ -1337,7 +1337,7 @@ func (m *Model) Override(folder string) {
 	fs.WithNeed(protocol.LocalDeviceID, func(fi db.FileIntf) bool {
 		need := fi.(protocol.FileInfo)
 		if len(batch) == indexBatchSize {
-			fs.Update(protocol.LocalDeviceID, batch)
+			fs.Update(protocol.LocalDeviceID, batch) // XXX: LOCK FAIL
 			batch = batch[:0]
 		}
 

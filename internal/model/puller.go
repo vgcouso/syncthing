@@ -301,8 +301,13 @@ func (p *Puller) pullerIteration(ignores *ignore.Matcher) int {
 	dirDeletions := []protocol.FileInfo{}
 	buckets := map[string][]protocol.FileInfo{}
 
+	var files []db.FileIntf
 	folderFiles.WithNeed(protocol.LocalDeviceID, func(intf db.FileIntf) bool {
+		files = append(files, intf)
+		return true
+	})
 
+	for _, intf := range files {
 		// Needed items are delivered sorted lexicographically. This isn't
 		// really optimal from a performance point of view - it would be
 		// better if files were handled in random order, to spread the load
@@ -314,7 +319,7 @@ func (p *Puller) pullerIteration(ignores *ignore.Matcher) int {
 
 		if ignores.Match(file.Name) {
 			// This is an ignored file. Skip it, continue iteration.
-			return true
+			continue
 		}
 
 		events.Default.Log(events.ItemStarted, map[string]string{
@@ -344,8 +349,7 @@ func (p *Puller) pullerIteration(ignores *ignore.Matcher) int {
 		}
 
 		changed++
-		return true
-	})
+	}
 
 	for _, file := range fileDeletions {
 		if df, ok := p.model.CurrentFolderFile(p.folder, file.Name); ok && !df.IsDeleted() {
