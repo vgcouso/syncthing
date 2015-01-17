@@ -84,8 +84,12 @@ type service interface {
 }
 
 type Model struct {
-	cfg             *config.Wrapper
-	db              *leveldb.DB
+	cfg *config.Wrapper
+	db  *leveldb.DB
+
+	cache    *db.NamespacedKV
+	cacheMut sync.Mutex
+
 	finder          *db.BlockFinder
 	progressEmitter *ProgressEmitter
 
@@ -130,6 +134,7 @@ func NewModel(cfg *config.Wrapper, deviceName, clientName, clientVersion string,
 	m := &Model{
 		cfg:                cfg,
 		db:                 ldb,
+		cache:              db.NewNamespacedKV(ldb, string(db.KeyTypeModelCache)),
 		deviceName:         deviceName,
 		clientName:         clientName,
 		clientVersion:      clientVersion,
@@ -307,6 +312,21 @@ func (m *Model) Completion(device protocol.DeviceID, folder string) float64 {
 		return 0 // Folder doesn't exist, so we hardly have any of it
 	}
 
+	// If cached values matching the current LocalVersion exist, use them.
+
+	key := folder + "|" + device.String()
+	m.cacheMut.Lock()
+	curMLV := m.CurrentLocalVersion(folder)
+	prevMLV, ok := m.cache.Int64("completionMLV|" + key)
+	if ok && curMLV == prevMLV {
+		tmp, _ := m.cache.Int64("completion|" + key)
+		m.cacheMut.Unlock()
+		return float64(tmp) / 1000.0
+	}
+	m.cacheMut.Unlock()
+
+	// Calculate current completion percentage
+
 	rf.WithGlobalTruncated(func(f db.FileIntf) bool {
 		if !f.IsDeleted() {
 			tot += f.Size()
@@ -330,6 +350,13 @@ func (m *Model) Completion(device protocol.DeviceID, folder string) float64 {
 	if debug {
 		l.Debugf("%v Completion(%s, %q): %f (%d / %d)", m, device, folder, res, need, tot)
 	}
+
+	// Cache completion percentage
+
+	m.cacheMut.Lock()
+	m.cache.PutInt64("completionMLV|"+key, curMLV)
+	m.cache.PutInt64("completion|"+key, int64(1000*res))
+	m.cacheMut.Unlock()
 
 	return res
 }
@@ -357,8 +384,25 @@ func sizeOfFile(f db.FileIntf) (files, deleted int, bytes int64) {
 // GlobalSize returns the number of files, deleted files and total bytes for all
 // files in the global model.
 func (m *Model) GlobalSize(folder string) (nfiles, deleted int, bytes int64) {
+	// If cached values matching the current LocalVersion exist, use them.
+
+	m.cacheMut.Lock()
+	curMLV := m.CurrentLocalVersion(folder)
+	prevMLV, ok := m.cache.Int64("globalMLV|" + folder)
+	if ok && curMLV == prevMLV {
+		nfilesTmp, _ := m.cache.Int64("globalFiles|" + folder)
+		nfiles = int(nfilesTmp)
+		deletedTmp, _ := m.cache.Int64("globalDeleted|" + folder)
+		deleted = int(deletedTmp)
+		bytes, _ = m.cache.Int64("deletedBytes|" + folder)
+		m.cacheMut.Unlock()
+		return
+	}
+	m.cacheMut.Unlock()
+
 	m.fmut.RLock()
 	defer m.fmut.RUnlock()
+
 	if rf, ok := m.folderFiles[folder]; ok {
 		rf.WithGlobalTruncated(func(f db.FileIntf) bool {
 			fs, de, by := sizeOfFile(f)
@@ -368,14 +412,41 @@ func (m *Model) GlobalSize(folder string) (nfiles, deleted int, bytes int64) {
 			return true
 		})
 	}
+
+	// Update cached values
+
+	m.cacheMut.Lock()
+	m.cache.PutInt64("globalMLV|"+folder, curMLV)
+	m.cache.PutInt64("globalFiles|"+folder, int64(nfiles))
+	m.cache.PutInt64("globalDeleted|"+folder, int64(deleted))
+	m.cache.PutInt64("globalBytes|"+folder, bytes)
+	m.cacheMut.Unlock()
+
 	return
 }
 
 // LocalSize returns the number of files, deleted files and total bytes for all
 // files in the local folder.
 func (m *Model) LocalSize(folder string) (nfiles, deleted int, bytes int64) {
+	// If cached values matching the current LocalVersion exist, use them.
+
+	m.cacheMut.Lock()
+	curMLV := m.CurrentLocalVersion(folder)
+	prevMLV, ok := m.cache.Int64("localMLV|" + folder)
+	if ok && curMLV == prevMLV {
+		nfilesTmp, _ := m.cache.Int64("localFiles|" + folder)
+		nfiles = int(nfilesTmp)
+		deletedTmp, _ := m.cache.Int64("localDeleted|" + folder)
+		deleted = int(deletedTmp)
+		bytes, _ = m.cache.Int64("deletedBytes|" + folder)
+		m.cacheMut.Unlock()
+		return
+	}
+	m.cacheMut.Unlock()
+
 	m.fmut.RLock()
 	defer m.fmut.RUnlock()
+
 	if rf, ok := m.folderFiles[folder]; ok {
 		rf.WithHaveTruncated(protocol.LocalDeviceID, func(f db.FileIntf) bool {
 			if f.IsInvalid() {
@@ -388,13 +459,38 @@ func (m *Model) LocalSize(folder string) (nfiles, deleted int, bytes int64) {
 			return true
 		})
 	}
+
+	// Update cached values
+
+	m.cacheMut.Lock()
+	m.cache.PutInt64("localMLV|"+folder, curMLV)
+	m.cache.PutInt64("localFiles|"+folder, int64(nfiles))
+	m.cache.PutInt64("localDeleted|"+folder, int64(deleted))
+	m.cache.PutInt64("localBytes|"+folder, bytes)
+	m.cacheMut.Unlock()
+
 	return
 }
 
 // NeedSize returns the number and total size of currently needed files.
 func (m *Model) NeedSize(folder string) (nfiles int, bytes int64) {
+	// If cached values matching the current LocalVersion exist, use them.
+
+	m.cacheMut.Lock()
+	curMLV := m.CurrentLocalVersion(folder)
+	prevMLV, ok := m.cache.Int64("needMLV|" + folder)
+	if ok && curMLV == prevMLV {
+		nfilesTmp, _ := m.cache.Int64("needFiles|" + folder)
+		nfiles = int(nfilesTmp)
+		bytes, _ = m.cache.Int64("needBytes|" + folder)
+		m.cacheMut.Unlock()
+		return
+	}
+	m.cacheMut.Unlock()
+
 	m.fmut.RLock()
 	defer m.fmut.RUnlock()
+
 	if rf, ok := m.folderFiles[folder]; ok {
 		rf.WithNeedTruncated(protocol.LocalDeviceID, func(f db.FileIntf) bool {
 			fs, de, by := sizeOfFile(f)
@@ -407,6 +503,15 @@ func (m *Model) NeedSize(folder string) (nfiles int, bytes int64) {
 	if debug {
 		l.Debugf("%v NeedSize(%q): %d %d", m, folder, nfiles, bytes)
 	}
+
+	// Update cached values
+
+	m.cacheMut.Lock()
+	m.cache.PutInt64("needMLV|"+folder, curMLV)
+	m.cache.PutInt64("needFiles|"+folder, int64(nfiles))
+	m.cache.PutInt64("needBytes|"+folder, bytes)
+	m.cacheMut.Unlock()
+
 	return
 }
 

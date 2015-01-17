@@ -55,6 +55,7 @@ const (
 	KeyTypeBlock
 	KeyTypeDeviceStatistic
 	KeyTypeFolderStatistic
+	KeyTypeModelCache
 )
 
 type fileVersion struct {
