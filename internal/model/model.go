@@ -88,7 +88,7 @@ type Model struct {
 	db  *leveldb.DB
 
 	cache    *db.NamespacedKV
-	cacheMut sync.Mutex
+	cacheMut sync.RWMutex
 
 	finder          *db.BlockFinder
 	progressEmitter *ProgressEmitter
@@ -315,15 +315,15 @@ func (m *Model) Completion(device protocol.DeviceID, folder string) float64 {
 	// If cached values matching the current LocalVersion exist, use them.
 
 	key := folder + "|" + device.String()
-	m.cacheMut.Lock()
+	m.cacheMut.RLock()
 	curMLV := m.CurrentLocalVersion(folder)
 	prevMLV, ok := m.cache.Int64("completionMLV|" + key)
 	if ok && curMLV == prevMLV {
 		tmp, _ := m.cache.Int64("completion|" + key)
-		m.cacheMut.Unlock()
+		m.cacheMut.RUnlock()
 		return float64(tmp) / 1000.0
 	}
-	m.cacheMut.Unlock()
+	m.cacheMut.RUnlock()
 
 	// Calculate current completion percentage
 
@@ -386,7 +386,7 @@ func sizeOfFile(f db.FileIntf) (files, deleted int, bytes int64) {
 func (m *Model) GlobalSize(folder string) (nfiles, deleted int, bytes int64) {
 	// If cached values matching the current LocalVersion exist, use them.
 
-	m.cacheMut.Lock()
+	m.cacheMut.RLock()
 	curMLV := m.CurrentLocalVersion(folder)
 	prevMLV, ok := m.cache.Int64("globalMLV|" + folder)
 	if ok && curMLV == prevMLV {
@@ -395,10 +395,10 @@ func (m *Model) GlobalSize(folder string) (nfiles, deleted int, bytes int64) {
 		deletedTmp, _ := m.cache.Int64("globalDeleted|" + folder)
 		deleted = int(deletedTmp)
 		bytes, _ = m.cache.Int64("deletedBytes|" + folder)
-		m.cacheMut.Unlock()
+		m.cacheMut.RUnlock()
 		return
 	}
-	m.cacheMut.Unlock()
+	m.cacheMut.RUnlock()
 
 	m.fmut.RLock()
 	defer m.fmut.RUnlock()
@@ -430,7 +430,7 @@ func (m *Model) GlobalSize(folder string) (nfiles, deleted int, bytes int64) {
 func (m *Model) LocalSize(folder string) (nfiles, deleted int, bytes int64) {
 	// If cached values matching the current LocalVersion exist, use them.
 
-	m.cacheMut.Lock()
+	m.cacheMut.RLock()
 	curMLV := m.CurrentLocalVersion(folder)
 	prevMLV, ok := m.cache.Int64("localMLV|" + folder)
 	if ok && curMLV == prevMLV {
@@ -439,10 +439,10 @@ func (m *Model) LocalSize(folder string) (nfiles, deleted int, bytes int64) {
 		deletedTmp, _ := m.cache.Int64("localDeleted|" + folder)
 		deleted = int(deletedTmp)
 		bytes, _ = m.cache.Int64("deletedBytes|" + folder)
-		m.cacheMut.Unlock()
+		m.cacheMut.RUnlock()
 		return
 	}
-	m.cacheMut.Unlock()
+	m.cacheMut.RUnlock()
 
 	m.fmut.RLock()
 	defer m.fmut.RUnlock()
@@ -476,17 +476,17 @@ func (m *Model) LocalSize(folder string) (nfiles, deleted int, bytes int64) {
 func (m *Model) NeedSize(folder string) (nfiles int, bytes int64) {
 	// If cached values matching the current LocalVersion exist, use them.
 
-	m.cacheMut.Lock()
+	m.cacheMut.RLock()
 	curMLV := m.CurrentLocalVersion(folder)
 	prevMLV, ok := m.cache.Int64("needMLV|" + folder)
 	if ok && curMLV == prevMLV {
 		nfilesTmp, _ := m.cache.Int64("needFiles|" + folder)
 		nfiles = int(nfilesTmp)
 		bytes, _ = m.cache.Int64("needBytes|" + folder)
-		m.cacheMut.Unlock()
+		m.cacheMut.RUnlock()
 		return
 	}
-	m.cacheMut.Unlock()
+	m.cacheMut.RUnlock()
 
 	m.fmut.RLock()
 	defer m.fmut.RUnlock()
