@@ -24,13 +24,14 @@ import (
 	"testing"
 
 	"github.com/syncthing/syncthing/internal/symlinks"
+	"github.com/syncthing/syncthing/internal/testutil"
 )
 
 func TestIgnores(t *testing.T) {
 	// Clean and start a syncthing instance
 
 	log.Println("Cleaning...")
-	err := removeAll("s1", "h1/index")
+	err := testutil.RemoveAll("s1", "h1/index")
 	if err != nil {
 		t.Fatal(err)
 	}

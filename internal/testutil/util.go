@@ -13,9 +13,7 @@
 // You should have received a copy of the GNU General Public License along
 // with this program. If not, see <http://www.gnu.org/licenses/>.
 
-// +build integration
-
-package integration
+package testutil
 
 import (
 	"crypto/md5"
@@ -38,21 +36,14 @@ func init() {
 	rand.Seed(42)
 }
 
-const (
-	id1    = "I6KAH76-66SLLLB-5PFXSOA-UFJCDZC-YAOMLEK-CP2GB32-BV5RQST-3PSROAU"
-	id2    = "JMFJCXB-GZDE4BN-OCJE3VF-65GYZNU-AIVJRET-3J6HMRQ-AUQIGJO-FKNHMQU"
-	id3    = "373HSRP-QLPNLIE-JYKZVQF-P4PKZ63-R2ZE6K3-YD442U2-JHBGBQG-WWXAHAU"
-	apiKey = "abc123"
-)
-
-func generateFiles(dir string, files, maxexp int, srcname string) error {
+func GenerateFiles(dir string, files, maxexp int, srcname string) error {
 	fd, err := os.Open(srcname)
 	if err != nil {
 		return err
 	}
 
 	for i := 0; i < files; i++ {
-		n := randomName()
+		n := RandomName()
 
 		if rand.Float64() < 0.05 {
 			// Some files and directories are dotfiles
@@ -72,7 +63,7 @@ func generateFiles(dir string, files, maxexp int, srcname string) error {
 		}
 		s += rand.Intn(a)
 
-		src := io.LimitReader(&inifiteReader{fd}, int64(s))
+		src := io.LimitReader(&InifiteReader{fd}, int64(s))
 
 		p1 := filepath.Join(p0, n)
 		dst, err := os.Create(p1)
@@ -105,7 +96,7 @@ func generateFiles(dir string, files, maxexp int, srcname string) error {
 	return nil
 }
 
-func alterFiles(dir string) error {
+func AlterFiles(dir string) error {
 	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if os.IsNotExist(err) {
 			// Something we deleted. Never mind.
@@ -132,7 +123,7 @@ func alterFiles(dir string) error {
 		switch {
 		case r < 0.1 && comps > 2:
 			// Delete every tenth file or directory, except top levels
-			err := removeAll(path)
+			err := RemoveAll(path)
 			if err != nil {
 				return err
 			}
@@ -172,7 +163,7 @@ func alterFiles(dir string) error {
 					rpath = filepath.Join(rpath, "..")
 				}
 			}
-			err = os.Rename(path, filepath.Join(rpath, randomName()))
+			err = os.Rename(path, filepath.Join(rpath, RandomName()))
 			if err != nil {
 				return err
 			}
@@ -184,7 +175,7 @@ func alterFiles(dir string) error {
 	}
 
 	// Create 100 new files
-	return generateFiles(dir, 100, 20, "../LICENSE")
+	return GenerateFiles(dir, 100, 20, "../LICENSE")
 }
 
 func ReadRand(bs []byte) (int, error) {
@@ -198,17 +189,17 @@ func ReadRand(bs []byte) (int, error) {
 	return len(bs), nil
 }
 
-func randomName() string {
+func RandomName() string {
 	var b [16]byte
 	ReadRand(b[:])
 	return fmt.Sprintf("%x", b[:])
 }
 
-type inifiteReader struct {
+type InifiteReader struct {
 	rd io.ReadSeeker
 }
 
-func (i *inifiteReader) Read(bs []byte) (int, error) {
+func (i *InifiteReader) Read(bs []byte) (int, error) {
 	n, err := i.rd.Read(bs)
 	if err == io.EOF {
 		err = nil
@@ -218,7 +209,7 @@ func (i *inifiteReader) Read(bs []byte) (int, error) {
 }
 
 // rm -rf
-func removeAll(dirs ...string) error {
+func RemoveAll(dirs ...string) error {
 	for _, dir := range dirs {
 		// Set any non-writeable files and dirs to writeable. This is necessary for os.RemoveAll to work on Windows.
 		filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
@@ -237,10 +228,10 @@ func removeAll(dirs ...string) error {
 
 // Compare a number of directories. Returns nil if the contents are identical,
 // otherwise an error describing the first found difference.
-func compareDirectories(dirs ...string) error {
-	chans := make([]chan fileInfo, len(dirs))
+func CompareDirectories(dirs ...string) error {
+	chans := make([]chan FileInfo, len(dirs))
 	for i := range chans {
-		chans[i] = make(chan fileInfo)
+		chans[i] = make(chan FileInfo)
 	}
 	errcs := make([]chan error, len(dirs))
 	abort := make(chan struct{})
@@ -249,7 +240,7 @@ func compareDirectories(dirs ...string) error {
 		errcs[i] = startWalker(dirs[i], chans[i], abort)
 	}
 
-	res := make([]fileInfo, len(dirs))
+	res := make([]FileInfo, len(dirs))
 	for {
 		numDone := 0
 		for i := range chans {
@@ -278,11 +269,11 @@ func compareDirectories(dirs ...string) error {
 	}
 }
 
-func directoryContents(dir string) ([]fileInfo, error) {
-	res := make(chan fileInfo)
+func DirectoryContents(dir string) ([]FileInfo, error) {
+	res := make(chan FileInfo)
 	errc := startWalker(dir, res, nil)
 
-	var files []fileInfo
+	var files []FileInfo
 	for f := range res {
 		files = append(files, f)
 	}
@@ -290,8 +281,8 @@ func directoryContents(dir string) ([]fileInfo, error) {
 	return files, <-errc
 }
 
-func mergeDirectoryContents(c ...[]fileInfo) []fileInfo {
-	m := make(map[string]fileInfo)
+func MergeDirectoryContents(c ...[]FileInfo) []FileInfo {
+	m := make(map[string]FileInfo)
 
 	for _, l := range c {
 		for _, f := range l {
@@ -301,7 +292,7 @@ func mergeDirectoryContents(c ...[]fileInfo) []fileInfo {
 		}
 	}
 
-	res := make([]fileInfo, len(m))
+	res := make([]FileInfo, len(m))
 	i := 0
 	for _, f := range m {
 		res[i] = f
@@ -312,7 +303,7 @@ func mergeDirectoryContents(c ...[]fileInfo) []fileInfo {
 	return res
 }
 
-func compareDirectoryContents(actual, expected []fileInfo) error {
+func CompareDirectoryContents(actual, expected []FileInfo) error {
 	if len(actual) != len(expected) {
 		return fmt.Errorf("len(actual) = %d; len(expected) = %d", len(actual), len(expected))
 	}
@@ -325,18 +316,18 @@ func compareDirectoryContents(actual, expected []fileInfo) error {
 	return nil
 }
 
-type fileInfo struct {
+type FileInfo struct {
 	name string
 	mode os.FileMode
 	mod  int64
 	hash [16]byte
 }
 
-func (f fileInfo) String() string {
+func (f FileInfo) String() string {
 	return fmt.Sprintf("%s %04o %d %x", f.name, f.mode, f.mod, f.hash)
 }
 
-type fileInfoList []fileInfo
+type fileInfoList []FileInfo
 
 func (l fileInfoList) Len() int {
 	return len(l)
@@ -350,7 +341,7 @@ func (l fileInfoList) Swap(a, b int) {
 	l[a], l[b] = l[b], l[a]
 }
 
-func startWalker(dir string, res chan<- fileInfo, abort <-chan struct{}) chan error {
+func startWalker(dir string, res chan<- FileInfo, abort <-chan struct{}) chan error {
 	walker := func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -364,9 +355,9 @@ func startWalker(dir string, res chan<- fileInfo, abort <-chan struct{}) chan er
 			return filepath.SkipDir
 		}
 
-		var f fileInfo
+		var f FileInfo
 		if info.Mode()&os.ModeSymlink != 0 {
-			f = fileInfo{
+			f = FileInfo{
 				name: rn,
 				mode: os.ModeSymlink,
 			}
@@ -381,13 +372,13 @@ func startWalker(dir string, res chan<- fileInfo, abort <-chan struct{}) chan er
 
 			copy(f.hash[:], hash)
 		} else if info.IsDir() {
-			f = fileInfo{
+			f = FileInfo{
 				name: rn,
 				mode: info.Mode(),
 				// hash and modtime zero for directories
 			}
 		} else {
-			f = fileInfo{
+			f = FileInfo{
 				name: rn,
 				mode: info.Mode(),
 				mod:  info.ModTime().Unix(),
@@ -434,7 +425,7 @@ func md5file(fname string) (hash [16]byte, err error) {
 	return
 }
 
-func isTimeout(err error) bool {
+func IsTimeout(err error) bool {
 	if err == nil {
 		return false
 	}

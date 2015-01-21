@@ -22,6 +22,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/syncthing/syncthing/internal/testutil"
 )
 
 func TestRestartReceiverDuringTransfer(t *testing.T) {
@@ -41,13 +43,13 @@ func TestRestartSenderAndReceiverDuringTransfer(t *testing.T) {
 
 func testRestartDuringTransfer(t *testing.T, restartSender, restartReceiver bool, senderDelay, receiverDelay time.Duration) {
 	log.Println("Cleaning...")
-	err := removeAll("s1", "s2", "h1/index", "h2/index")
+	err := testutil.RemoveAll("s1", "s2", "h1/index", "h2/index")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	log.Println("Generating files...")
-	err = generateFiles("s1", 1000, 22, "../LICENSE")
+	err = testutil.GenerateFiles("s1", 1000, 22, "../LICENSE")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +82,7 @@ func testRestartDuringTransfer(t *testing.T, restartSender, restartReceiver bool
 	for {
 		comp, err := sender.peerCompletion()
 		if err != nil {
-			if isTimeout(err) {
+			if testutil.IsTimeout(err) {
 				time.Sleep(250 * time.Millisecond)
 				continue
 			}
@@ -160,7 +162,7 @@ func testRestartDuringTransfer(t *testing.T, restartSender, restartReceiver bool
 	}
 
 	log.Println("Comparing directories...")
-	err = compareDirectories("s1", "s2")
+	err = testutil.CompareDirectories("s1", "s2")
 	if err != nil {
 		t.Fatal(err)
 	}

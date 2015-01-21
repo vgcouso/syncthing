@@ -23,6 +23,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/syncthing/syncthing/internal/testutil"
 )
 
 func TestCLIReset(t *testing.T) {
@@ -62,7 +64,7 @@ func TestCLIReset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	removeAll(dirs...)
+	testutil.RemoveAll(dirs...)
 }
 
 func TestCLIGenerate(t *testing.T) {

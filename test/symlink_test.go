@@ -28,6 +28,7 @@ import (
 	"github.com/syncthing/protocol"
 	"github.com/syncthing/syncthing/internal/config"
 	"github.com/syncthing/syncthing/internal/symlinks"
+	"github.com/syncthing/syncthing/internal/testutil"
 )
 
 func symlinksSupported() bool {
@@ -95,13 +96,13 @@ func TestSymlinksStaggeredVersioning(t *testing.T) {
 
 func testSymlinks(t *testing.T) {
 	log.Println("Cleaning...")
-	err := removeAll("s1", "s2", "h1/index", "h2/index")
+	err := testutil.RemoveAll("s1", "s2", "h1/index", "h2/index")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	log.Println("Generating files...")
-	err = generateFiles("s1", 100, 20, "../LICENSE")
+	err = testutil.GenerateFiles("s1", 100, 20, "../LICENSE")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +203,7 @@ func testSymlinks(t *testing.T) {
 	for {
 		comp, err := sender.peerCompletion()
 		if err != nil {
-			if isTimeout(err) {
+			if testutil.IsTimeout(err) {
 				time.Sleep(time.Second)
 				continue
 			}
@@ -230,7 +231,7 @@ func testSymlinks(t *testing.T) {
 	}
 
 	log.Println("Comparing directories...")
-	err = compareDirectories("s1", "s2")
+	err = testutil.CompareDirectories("s1", "s2")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,7 +328,7 @@ func testSymlinks(t *testing.T) {
 	for {
 		comp, err := sender.peerCompletion()
 		if err != nil {
-			if isTimeout(err) {
+			if testutil.IsTimeout(err) {
 				time.Sleep(time.Second)
 				continue
 			}
@@ -355,7 +356,7 @@ func testSymlinks(t *testing.T) {
 	}
 
 	log.Println("Comparing directories...")
-	err = compareDirectories("s1", "s2")
+	err = testutil.CompareDirectories("s1", "s2")
 	if err != nil {
 		t.Fatal(err)
 	}

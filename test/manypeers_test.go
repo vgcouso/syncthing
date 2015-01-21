@@ -27,17 +27,18 @@ import (
 	"github.com/syncthing/protocol"
 	"github.com/syncthing/syncthing/internal/config"
 	"github.com/syncthing/syncthing/internal/osutil"
+	"github.com/syncthing/syncthing/internal/testutil"
 )
 
 func TestManyPeers(t *testing.T) {
 	log.Println("Cleaning...")
-	err := removeAll("s1", "s2", "h1/index", "h2/index")
+	err := testutil.RemoveAll("s1", "s2", "h1/index", "h2/index")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	log.Println("Generating files...")
-	err = generateFiles("s1", 200, 20, "../LICENSE")
+	err = testutil.GenerateFiles("s1", 200, 20, "../LICENSE")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +69,7 @@ func TestManyPeers(t *testing.T) {
 
 	for len(cfg.Devices) < 100 {
 		bs := make([]byte, 16)
-		ReadRand(bs)
+		testutil.ReadRand(bs)
 		id := protocol.NewDeviceID(bs)
 		cfg.Devices = append(cfg.Devices, config.DeviceConfiguration{DeviceID: id})
 		cfg.Folders[0].Devices = append(cfg.Folders[0].Devices, config.FolderDeviceConfiguration{DeviceID: id})
@@ -104,7 +105,7 @@ func TestManyPeers(t *testing.T) {
 	for {
 		comp, err := sender.peerCompletion()
 		if err != nil {
-			if isTimeout(err) {
+			if testutil.IsTimeout(err) {
 				time.Sleep(250 * time.Millisecond)
 				continue
 			}
@@ -117,7 +118,7 @@ func TestManyPeers(t *testing.T) {
 	}
 
 	log.Println("Comparing directories...")
-	err = compareDirectories("s1", "s2")
+	err = testutil.CompareDirectories("s1", "s2")
 	if err != nil {
 		t.Fatal(err)
 	}

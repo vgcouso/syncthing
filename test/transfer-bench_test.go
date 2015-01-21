@@ -21,21 +21,23 @@ import (
 	"log"
 	"testing"
 	"time"
+
+	"github.com/syncthing/syncthing/internal/testutil"
 )
 
 func TestBenchmarkTransfer(t *testing.T) {
 	log.Println("Cleaning...")
-	err := removeAll("s1", "s2", "h1/index", "h2/index")
+	err := testutil.RemoveAll("s1", "s2", "h1/index", "h2/index")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	log.Println("Generating files...")
-	err = generateFiles("s1", 10000, 22, "../LICENSE")
+	err = testutil.GenerateFiles("s1", 10000, 22, "../LICENSE")
 	if err != nil {
 		t.Fatal(err)
 	}
-	expected := directoryContents("s1")
+	expected := testutil.DirectoryContents("s1")
 
 	log.Println("Starting sender...")
 	sender := syncthingProcess{ // id1
@@ -70,7 +72,7 @@ loop:
 	for {
 		evs, err := receiver.events()
 		if err != nil {
-			if isTimeout(err) {
+			if testutil.IsTimeout(err) {
 				continue
 			}
 			sender.stop()
@@ -104,8 +106,8 @@ loop:
 
 	log.Println("Verifying...")
 
-	actual := directoryContents("s2")
-	err = compareDirectoryContents(actual, expected)
+	actual := testutil.DirectoryContents("s2")
+	err = testutil.CompareDirectoryContents(actual, expected)
 	if err != nil {
 		t.Fatal(err)
 	}

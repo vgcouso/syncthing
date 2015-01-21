@@ -28,11 +28,13 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/syncthing/syncthing/internal/testutil"
 )
 
 func TestStressHTTP(t *testing.T) {
 	log.Println("Cleaning...")
-	err := removeAll("s2", "h2/index")
+	err := testutil.RemoveAll("s2", "h2/index")
 	if err != nil {
 		t.Fatal(err)
 	}

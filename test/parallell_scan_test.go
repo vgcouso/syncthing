@@ -23,17 +23,19 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/syncthing/syncthing/internal/testutil"
 )
 
 func TestParallellScan(t *testing.T) {
 	log.Println("Cleaning...")
-	err := removeAll("s1", "h1/index")
+	err := testutil.RemoveAll("s1", "h1/index")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	log.Println("Generating files...")
-	err = generateFiles("s1", 5000, 18, "../LICENSE")
+	err = testutil.GenerateFiles("s1", 5000, 18, "../LICENSE")
 	if err != nil {
 		t.Fatal(err)
 	}

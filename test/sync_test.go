@@ -26,6 +26,7 @@ import (
 
 	"github.com/syncthing/protocol"
 	"github.com/syncthing/syncthing/internal/config"
+	"github.com/syncthing/syncthing/internal/testutil"
 )
 
 func TestSyncClusterWithoutVersioning(t *testing.T) {
@@ -81,7 +82,7 @@ func testSyncCluster(t *testing.T) {
 
 	*/
 	log.Println("Cleaning...")
-	err := removeAll("s1", "s12-1",
+	err := testutil.RemoveAll("s1", "s12-1",
 		"s2", "s12-2", "s23-2",
 		"s3", "s23-3",
 		"h1/index", "h2/index", "h3/index")
@@ -95,11 +96,11 @@ func testSyncCluster(t *testing.T) {
 
 	log.Println("Generating files...")
 
-	err = generateFiles("s1", 1000, 21, "../LICENSE")
+	err = testutil.GenerateFiles("s1", 1000, 21, "../LICENSE")
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = generateFiles("s12-1", 1000, 21, "../LICENSE")
+	err = testutil.GenerateFiles("s12-1", 1000, 21, "../LICENSE")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,43 +119,43 @@ func testSyncCluster(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = generateFiles("s2", 1000, 21, "../LICENSE")
+	err = testutil.GenerateFiles("s2", 1000, 21, "../LICENSE")
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = generateFiles("s23-2", 1000, 21, "../LICENSE")
+	err = testutil.GenerateFiles("s23-2", 1000, 21, "../LICENSE")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = generateFiles("s3", 1000, 21, "../LICENSE")
+	err = testutil.GenerateFiles("s3", 1000, 21, "../LICENSE")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Prepare the expected state of folders after the sync
-	c1, err := directoryContents("s1")
+	c1, err := testutil.DirectoryContents("s1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	c2, err := directoryContents("s2")
+	c2, err := testutil.DirectoryContents("s2")
 	if err != nil {
 		t.Fatal(err)
 	}
-	c3, err := directoryContents("s3")
+	c3, err := testutil.DirectoryContents("s3")
 	if err != nil {
 		t.Fatal(err)
 	}
-	e1 := mergeDirectoryContents(c1, c2, c3)
-	e2, err := directoryContents("s12-1")
+	e1 := testutil.MergeDirectoryContents(c1, c2, c3)
+	e2, err := testutil.DirectoryContents("s12-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	e3, err := directoryContents("s23-2")
+	e3, err := testutil.DirectoryContents("s23-2")
 	if err != nil {
 		t.Fatal(err)
 	}
-	expected := [][]fileInfo{e1, e2, e3}
+	expected := [][]testutil.FileInfo{e1, e2, e3}
 
 	// Start the syncers
 	p, err := scStartProcesses()
@@ -191,17 +192,17 @@ func testSyncCluster(t *testing.T) {
 		log.Println("Altering...")
 
 		// Alter the source files for another round
-		err = alterFiles("s1")
+		err = testutil.AlterFiles("s1")
 		if err != nil {
 			t.Error(err)
 			break
 		}
-		err = alterFiles("s12-1")
+		err = testutil.AlterFiles("s12-1")
 		if err != nil {
 			t.Error(err)
 			break
 		}
-		err = alterFiles("s23-2")
+		err = testutil.AlterFiles("s23-2")
 		if err != nil {
 			t.Error(err)
 			break
@@ -234,19 +235,19 @@ func testSyncCluster(t *testing.T) {
 		}
 
 		// Prepare the expected state of folders after the sync
-		e1, err = directoryContents("s1")
+		e1, err = testutil.DirectoryContents("s1")
 		if err != nil {
 			t.Fatal(err)
 		}
-		e2, err = directoryContents("s12-1")
+		e2, err = testutil.DirectoryContents("s12-1")
 		if err != nil {
 			t.Fatal(err)
 		}
-		e3, err = directoryContents("s23-2")
+		e3, err = testutil.DirectoryContents("s23-2")
 		if err != nil {
 			t.Fatal(err)
 		}
-		expected = [][]fileInfo{e1, e2, e3}
+		expected = [][]testutil.FileInfo{e1, e2, e3}
 	}
 }
 
@@ -292,7 +293,7 @@ func scStartProcesses() ([]syncthingProcess, error) {
 	return p, nil
 }
 
-func scSyncAndCompare(p []syncthingProcess, expected [][]fileInfo) error {
+func scSyncAndCompare(p []syncthingProcess, expected [][]testutil.FileInfo) error {
 	ids := []string{id1, id2, id3}
 
 	log.Println("Syncing...")
@@ -304,7 +305,7 @@ mainLoop:
 		for i := range p {
 			comp, err := p[i].peerCompletion()
 			if err != nil {
-				if isTimeout(err) {
+				if testutil.IsTimeout(err) {
 					continue mainLoop
 				}
 				return err
@@ -328,31 +329,31 @@ mainLoop:
 	log.Println("Checking...")
 
 	for _, dir := range []string{"s1", "s2", "s3"} {
-		actual, err := directoryContents(dir)
+		actual, err := testutil.DirectoryContents(dir)
 		if err != nil {
 			return err
 		}
-		if err := compareDirectoryContents(actual, expected[0]); err != nil {
+		if err := testutil.CompareDirectoryContents(actual, expected[0]); err != nil {
 			return fmt.Errorf("%s: %v", dir, err)
 		}
 	}
 
 	for _, dir := range []string{"s12-1", "s12-2"} {
-		actual, err := directoryContents(dir)
+		actual, err := testutil.DirectoryContents(dir)
 		if err != nil {
 			return err
 		}
-		if err := compareDirectoryContents(actual, expected[1]); err != nil {
+		if err := testutil.CompareDirectoryContents(actual, expected[1]); err != nil {
 			return fmt.Errorf("%s: %v", dir, err)
 		}
 	}
 
 	for _, dir := range []string{"s23-2", "s23-3"} {
-		actual, err := directoryContents(dir)
+		actual, err := testutil.DirectoryContents(dir)
 		if err != nil {
 			return err
 		}
-		if err := compareDirectoryContents(actual, expected[2]); err != nil {
+		if err := testutil.CompareDirectoryContents(actual, expected[2]); err != nil {
 			return fmt.Errorf("%s: %v", dir, err)
 		}
 	}
