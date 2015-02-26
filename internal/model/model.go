@@ -1432,6 +1432,17 @@ func (m *Model) Availability(folder, file string) []protocol.DeviceID {
 	return availableDevices
 }
 
+func (m *Model) Versions(folder, file string) map[protocol.DeviceID]int64 {
+	m.fmut.RLock()
+	fs, ok := m.folderFiles[folder]
+	m.fmut.RUnlock()
+	if !ok {
+		return nil
+	}
+
+	return fs.Versions(file)
+}
+
 // Bump the given files priority in the job queue
 func (m *Model) BringToFront(folder, file string) {
 	m.pmut.RLock()

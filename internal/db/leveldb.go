@@ -795,6 +795,30 @@ func ldbAvailability(db *leveldb.DB, folder, file []byte) []protocol.DeviceID {
 	return devices
 }
 
+func ldbVersions(db *leveldb.DB, folder, file []byte) map[protocol.DeviceID]int64 {
+	k := globalKey(folder, file)
+	bs, err := db.Get(k, nil)
+	if err == leveldb.ErrNotFound {
+		return nil
+	}
+	if err != nil {
+		panic(err)
+	}
+
+	var vl versionList
+	err = vl.UnmarshalXDR(bs)
+	if err != nil {
+		panic(err)
+	}
+
+	res := make(map[protocol.DeviceID]int64)
+	for _, v := range vl.versions {
+		res[protocol.DeviceIDFromBytes(v.device)] = v.version
+	}
+
+	return res
+}
+
 func ldbWithNeed(db *leveldb.DB, folder, device []byte, truncate bool, fn Iterator) {
 	runtime.GC()
 

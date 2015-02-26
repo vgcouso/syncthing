@@ -361,19 +361,28 @@ func restGetFileStatus(m *model.Model, w http.ResponseWriter, r *http.Request) {
 	folder := qs.Get("folder")
 	file := qs.Get("file")
 	withBlocks := qs.Get("blocks") != ""
+
 	gf, _ := m.CurrentGlobalFile(folder, file)
 	lf, _ := m.CurrentFolderFile(folder, file)
+	av := m.Availability(folder, file)
+	vs := m.Versions(folder, file)
+
+	// json.Encoder can't handle a map[protocol.DeviceID]
+	strVs := make(map[string]int64, len(vs))
+	for k, v := range vs {
+		strVs[k.String()] = v
+	}
 
 	if !withBlocks {
 		gf.Blocks = nil
 		lf.Blocks = nil
 	}
 
-	av := m.Availability(folder, file)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"global":       gf,
 		"local":        lf,
 		"availability": av,
+		"versions":     strVs,
 	})
 }
 

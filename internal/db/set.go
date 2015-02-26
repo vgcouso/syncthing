@@ -212,6 +212,10 @@ func (s *FileSet) Availability(file string) []protocol.DeviceID {
 	return ldbAvailability(s.db, []byte(s.folder), []byte(osutil.NormalizedFilename(file)))
 }
 
+func (s *FileSet) Versions(file string) map[protocol.DeviceID]int64 {
+	return ldbVersions(s.db, []byte(s.folder), []byte(osutil.NormalizedFilename(file)))
+}
+
 func (s *FileSet) LocalVersion(device protocol.DeviceID) int64 {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
