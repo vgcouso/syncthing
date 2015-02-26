@@ -1409,7 +1409,7 @@ func (m *Model) RemoteLocalVersion(folder string) int64 {
 	return ver
 }
 
-func (m *Model) availability(folder, file string) []protocol.DeviceID {
+func (m *Model) Availability(folder, file string) []protocol.DeviceID {
 	// Acquire this lock first, as the value returned from foldersFiles can
 	// get heavily modified on Close()
 	m.pmut.RLock()
