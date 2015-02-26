@@ -316,7 +316,7 @@ func (m *Model) Completion(device protocol.DeviceID, folder string) float64 {
 
 	key := folder + "|" + device.String()
 	m.cacheMut.RLock()
-	curMLV := m.CurrentLocalVersion(folder)
+	curMLV := m.CurrentLocalVersion(folder) + m.RemoteLocalVersion(folder)
 	prevMLV, ok := m.cache.Int64("completionMLV|" + key)
 	if ok && curMLV == prevMLV {
 		tmp, _ := m.cache.Int64("completion|" + key)
@@ -387,7 +387,7 @@ func (m *Model) GlobalSize(folder string) (nfiles, deleted int, bytes int64) {
 	// If cached values matching the current LocalVersion exist, use them.
 
 	m.cacheMut.RLock()
-	curMLV := m.CurrentLocalVersion(folder)
+	curMLV := m.CurrentLocalVersion(folder) + m.RemoteLocalVersion(folder)
 	prevMLV, ok := m.cache.Int64("globalMLV|" + folder)
 	if ok && curMLV == prevMLV {
 		nfilesTmp, _ := m.cache.Int64("globalFiles|" + folder)
@@ -431,7 +431,7 @@ func (m *Model) LocalSize(folder string) (nfiles, deleted int, bytes int64) {
 	// If cached values matching the current LocalVersion exist, use them.
 
 	m.cacheMut.RLock()
-	curMLV := m.CurrentLocalVersion(folder)
+	curMLV := m.CurrentLocalVersion(folder) + m.RemoteLocalVersion(folder)
 	prevMLV, ok := m.cache.Int64("localMLV|" + folder)
 	if ok && curMLV == prevMLV {
 		nfilesTmp, _ := m.cache.Int64("localFiles|" + folder)
@@ -477,7 +477,7 @@ func (m *Model) NeedSize(folder string) (nfiles int, bytes int64) {
 	// If cached values matching the current LocalVersion exist, use them.
 
 	m.cacheMut.RLock()
-	curMLV := m.CurrentLocalVersion(folder)
+	curMLV := m.CurrentLocalVersion(folder) + m.RemoteLocalVersion(folder)
 	prevMLV, ok := m.cache.Int64("needMLV|" + folder)
 	if ok && curMLV == prevMLV {
 		nfilesTmp, _ := m.cache.Int64("needFiles|" + folder)
