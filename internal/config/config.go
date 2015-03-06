@@ -145,12 +145,13 @@ func (c *VersioningConfiguration) UnmarshalXML(d *xml.Decoder, start xml.StartEl
 }
 
 type DeviceConfiguration struct {
-	DeviceID    protocol.DeviceID `xml:"id,attr"`
-	Name        string            `xml:"name,attr,omitempty"`
-	Addresses   []string          `xml:"address,omitempty"`
-	Compression bool              `xml:"compression,attr"`
-	CertName    string            `xml:"certName,attr,omitempty"`
-	Introducer  bool              `xml:"introducer,attr"`
+	DeviceID      protocol.DeviceID `xml:"id,attr"`
+	Name          string            `xml:"name,attr,omitempty"`
+	Addresses     []string          `xml:"address,omitempty"`
+	Compression   bool              `xml:"compression,attr"`
+	CertName      string            `xml:"certName,attr,omitempty"`
+	Introducer    bool              `xml:"introducer,attr"`
+	EncryptionKey string            `xml:"encryptionKey,omitempty"`
 }
 
 type FolderDeviceConfiguration struct {

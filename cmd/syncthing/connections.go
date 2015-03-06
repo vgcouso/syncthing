@@ -117,7 +117,7 @@ next:
 				}
 
 				name := fmt.Sprintf("%s-%s", conn.LocalAddr(), conn.RemoteAddr())
-				protoConn := protocol.NewConnection(remoteID, rd, wr, m, name, deviceCfg.Compression)
+				protoConn := protocol.NewConnection(remoteID, rd, wr, m, name, deviceCfg.Compression, deviceCfg.EncryptionKey)
 
 				l.Infof("Established secure connection to %s at %s", remoteID, name)
 				if debugNet {
