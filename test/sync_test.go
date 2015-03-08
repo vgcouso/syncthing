@@ -39,7 +39,6 @@ func TestSyncClusterWithoutVersioning(t *testing.T) {
 	cfg.SetFolder(fld)
 	cfg.Save()
 
-	testSyncClusterCreatePullAndDeleteEvents(t)
 	testSyncCluster(t)
 }
 
@@ -253,21 +252,26 @@ func testSyncCluster(t *testing.T) {
 	}
 }
 
-func testSyncClusterCreatePullAndDeleteEvents(t *testing.T) {
-	/*
+func TestParallelPullAndScan(t *testing.T) {
+	// This tests syncing files back and forth between three cluster members.
+	// Their configs are in h1, h2 and h3. The folder "default" is shared
+	// between all and stored in s1, s2 and s3 respectively.
+	//
+	// Another folder is shared between 1 and 2 only, in s12-1 and s12-2. A
+	// third folders is shared between 2 and 3, in s23-2 and s23-3.
+	//
+	// During this test, we create 1K files remove then and create them again.
+	// However, during these operations we will perform scan operations such
+	// that other nodes will retrieve these options will data is changing.
 
-		This tests syncing files back and forth between three cluster members.
-		Their configs are in h1, h2 and h3. The folder "default" is shared
-		between all and stored in s1, s2 and s3 respectively.
+	// Use no versioning
+	id, _ := protocol.DeviceIDFromString(id2)
+	cfg, _ := config.Load("h2/config.xml", id)
+	fld := cfg.Folders()["default"]
+	fld.Versioning = config.VersioningConfiguration{}
+	cfg.SetFolder(fld)
+	cfg.Save()
 
-		Another folder is shared between 1 and 2 only, in s12-1 and s12-2. A
-		third folders is shared between 2 and 3, in s23-2 and s23-3.
-
-		During this test, we create 1K files remove then and create them again.
-		However, during these operations we will perform scan operations such
-		that other nodes will retrieve these options will data is changing.
-
-	*/
 	log.Println("Cleaning...")
 	err := removeAll("s1", "s12-1",
 		"s2", "s12-2", "s23-2",
@@ -277,9 +281,7 @@ func testSyncClusterCreatePullAndDeleteEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Create initial folder contents. All three devices have stuff in
-	// "default", which should be merged. The other two folders are initially
-	// empty on one side.
+	// Create initial folder contents.
 
 	log.Println("Generating files...")
 	for _, f := range []string{"s1", "s12-1",
@@ -306,28 +308,11 @@ func testSyncClusterCreatePullAndDeleteEvents(t *testing.T) {
 	}
 
 	// Prepare the expected state of folders after the sync
-	c1, err := directoryContents("s1")
+	e1, err := directoryContents("s1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	c2, err := directoryContents("s2")
-	if err != nil {
-		t.Fatal(err)
-	}
-	c3, err := directoryContents("s3")
-	if err != nil {
-		t.Fatal(err)
-	}
-	e1 := mergeDirectoryContents(c1, c2, c3)
-	e2, err := directoryContents("s12-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	e3, err := directoryContents("s23-2")
-	if err != nil {
-		t.Fatal(err)
-	}
-	expected := [][]fileInfo{e1, e2, e3}
+	expected := [][]fileInfo{e1, nil, nil}
 
 	// Start the syncers
 	p, err := scStartProcesses()
@@ -340,19 +325,20 @@ func testSyncClusterCreatePullAndDeleteEvents(t *testing.T) {
 		}
 	}()
 
-	for count := 0; count < 5; count++ {
-		rescan := func() {
-			for i := range p {
-				p[i].post("/rest/scan?folder=default", nil)
-				if i < 3 {
-					p[i].post("/rest/scan?folder=s12", nil)
-				}
-				if i > 1 {
-					p[i].post("/rest/scan?folder=s23", nil)
-				}
+	rescan := func() {
+		log.Println("Forcing rescan...")
+		for i := range p {
+			p[i].post("/rest/scan?folder=default", nil)
+			if i < 3 {
+				p[i].post("/rest/scan?folder=s12", nil)
+			}
+			if i > 1 {
+				p[i].post("/rest/scan?folder=s23", nil)
 			}
 		}
-		log.Println("Forcing rescan...")
+	}
+
+	for count := 0; count < 5; count++ {
 		rescan()
 
 		// Sync stuff and verify it looks right
@@ -373,8 +359,10 @@ func testSyncClusterCreatePullAndDeleteEvents(t *testing.T) {
 				rescan()
 			}
 		}
+
 		rescan()
 		time.Sleep(50 * time.Millisecond)
+
 		for i := 0; i < 1000; i++ {
 			fd, err := os.Create("s1/test-stable-files/" + strconv.Itoa(i))
 			if err != nil {
@@ -386,6 +374,7 @@ func testSyncClusterCreatePullAndDeleteEvents(t *testing.T) {
 				rescan()
 			}
 		}
+
 		rescan()
 
 		// Prepare the expected state of folders after the sync
@@ -393,18 +382,10 @@ func testSyncClusterCreatePullAndDeleteEvents(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		e2, err = directoryContents("s12-1")
-		if err != nil {
-			t.Fatal(err)
-		}
-		e3, err = directoryContents("s23-2")
-		if err != nil {
-			t.Fatal(err)
-		}
 		if len(e1) != 1001 {
 			t.Fatal("s1 does not have 1001 files, but only has " + strconv.Itoa(len(e1)))
 		}
-		expected = [][]fileInfo{e1, e2, e3}
+		expected = [][]fileInfo{e1, nil, nil}
 	}
 }
 

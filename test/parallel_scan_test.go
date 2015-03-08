@@ -25,7 +25,7 @@ import (
 	"time"
 )
 
-func TestParallellScan(t *testing.T) {
+func TestParallelScan(t *testing.T) {
 	log.Println("Cleaning...")
 	err := removeAll("s1", "h1/index")
 	if err != nil {
