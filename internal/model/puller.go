@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/calmh/du"
 	"github.com/syncthing/protocol"
 	"github.com/syncthing/syncthing/internal/config"
 	"github.com/syncthing/syncthing/internal/db"
@@ -157,9 +158,19 @@ loop:
 			for {
 				tries++
 
-				changed := p.pullerIteration(curIgnores)
+				changed, err := p.pullerIteration(curIgnores)
 				if debug {
-					l.Debugln(p, "changed", changed)
+					l.Debugln(p, "changed", changed, "err", err)
+				}
+
+				if err != nil {
+					// We failed to pull.
+					l.Warnf("Folder %q: %v. Pausing puller for %v.", p.folder, err, pauseIntv)
+					if debug {
+						l.Debugln(p, "next pull in", pauseIntv)
+					}
+					pullTimer.Reset(pauseIntv)
+					break
 				}
 
 				if changed == 0 {
@@ -245,7 +256,7 @@ func (p *Puller) String() string {
 // returns the number items that should have been synced (even those that
 // might have failed). One puller iteration handles all files currently
 // flagged as needed in the folder.
-func (p *Puller) pullerIteration(ignores *ignore.Matcher) int {
+func (p *Puller) pullerIteration(ignores *ignore.Matcher) (int, error) {
 	p.model.fmut.RLock()
 	folderFiles := p.model.folderFiles[p.folder]
 	p.model.fmut.RUnlock()
@@ -257,6 +268,8 @@ func (p *Puller) pullerIteration(ignores *ignore.Matcher) int {
 	// !!!
 
 	changed := 0
+	maxFileSize := int64(0)
+	needSize := int64(0)
 
 	fileDeletions := map[string]protocol.FileInfo{}
 	dirDeletions := []protocol.FileInfo{}
@@ -310,11 +323,50 @@ func (p *Puller) pullerIteration(ignores *ignore.Matcher) int {
 			// A new or changed file or symlink. This is the only case where we
 			// do stuff concurrently in the background
 			p.queue.Push(file.Name)
+			s := file.Size()
+			needSize += s
+			if s > maxFileSize {
+				maxFileSize = s
+			}
 		}
 
 		changed++
 		return true
 	})
+
+	// Bail early if we have nothing to do.
+	if changed == 0 {
+		return 0, nil
+	}
+
+	// Check for available disk space before we start pulling.
+	usage, err := du.Get(p.dir)
+	if debug {
+		l.Debugf("du(%q): %+v, %v", p.dir, usage, err)
+	}
+	if err != nil {
+		l.Infof("Getting available disk space on %q: %v", p.folder, err)
+	} else {
+		// We need to have space available for at least the biggest file in
+		// the bunch. Take it times two since we may use versioning. It may
+		// still not be enough, but we don't want to be too restrictive since
+		// we don't have the full picture here.
+		if usage.AvailBytes < maxFileSize*2 {
+			return 0, fmt.Errorf("out of disk space: need at least %d bytes, have %d bytes free", maxFileSize*2, usage.AvailBytes)
+		}
+
+		// We may have n=max(p.pullers, p.copiers) files being copied at the
+		// same time, so we may need on average total size / number of files *
+		// n bytes extra space while pulling.
+		n := p.pullers
+		if p.copiers > n {
+			n = p.copiers
+		}
+		needExtra := needSize * int64(n) / int64(len(p.queue.queued))
+		if usage.AvailBytes < needExtra {
+			return 0, fmt.Errorf("out of disk space: need at least %d bytes, have %d bytes free", needExtra, usage.AvailBytes)
+		}
+	}
 
 	// Start the actual routines to do their work.
 
@@ -429,7 +481,7 @@ nextFile:
 		p.deleteDir(dir)
 	}
 
-	return changed
+	return changed, nil
 }
 
 // handleDir creates or updates the given directory
