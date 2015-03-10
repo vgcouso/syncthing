@@ -246,43 +246,6 @@ func (p *Puller) String() string {
 // might have failed). One puller iteration handles all files currently
 // flagged as needed in the folder.
 func (p *Puller) pullerIteration(ignores *ignore.Matcher) int {
-	pullChan := make(chan pullBlockState)
-	copyChan := make(chan copyBlocksState)
-	finisherChan := make(chan *sharedPullerState)
-
-	var copyWg sync.WaitGroup
-	var pullWg sync.WaitGroup
-	var doneWg sync.WaitGroup
-
-	if debug {
-		l.Debugln(p, "c", p.copiers, "p", p.pullers)
-	}
-
-	for i := 0; i < p.copiers; i++ {
-		copyWg.Add(1)
-		go func() {
-			// copierRoutine finishes when copyChan is closed
-			p.copierRoutine(copyChan, pullChan, finisherChan)
-			copyWg.Done()
-		}()
-	}
-
-	for i := 0; i < p.pullers; i++ {
-		pullWg.Add(1)
-		go func() {
-			// pullerRoutine finishes when pullChan is closed
-			p.pullerRoutine(pullChan, finisherChan)
-			pullWg.Done()
-		}()
-	}
-
-	doneWg.Add(1)
-	// finisherRoutine finishes when finisherChan is closed
-	go func() {
-		p.finisherRoutine(finisherChan)
-		doneWg.Done()
-	}()
-
 	p.model.fmut.RLock()
 	folderFiles := p.model.folderFiles[p.folder]
 	p.model.fmut.RUnlock()
@@ -352,6 +315,45 @@ func (p *Puller) pullerIteration(ignores *ignore.Matcher) int {
 		changed++
 		return true
 	})
+
+	// Start the actual routines to do their work.
+
+	pullChan := make(chan pullBlockState)
+	copyChan := make(chan copyBlocksState)
+	finisherChan := make(chan *sharedPullerState)
+
+	var copyWg sync.WaitGroup
+	var pullWg sync.WaitGroup
+	var doneWg sync.WaitGroup
+
+	if debug {
+		l.Debugln(p, "c", p.copiers, "p", p.pullers)
+	}
+
+	for i := 0; i < p.copiers; i++ {
+		copyWg.Add(1)
+		go func() {
+			// copierRoutine finishes when copyChan is closed
+			p.copierRoutine(copyChan, pullChan, finisherChan)
+			copyWg.Done()
+		}()
+	}
+
+	for i := 0; i < p.pullers; i++ {
+		pullWg.Add(1)
+		go func() {
+			// pullerRoutine finishes when pullChan is closed
+			p.pullerRoutine(pullChan, finisherChan)
+			pullWg.Done()
+		}()
+	}
+
+	doneWg.Add(1)
+	// finisherRoutine finishes when finisherChan is closed
+	go func() {
+		p.finisherRoutine(finisherChan)
+		doneWg.Done()
+	}()
 
 nextFile:
 	for {
