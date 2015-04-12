@@ -27,7 +27,6 @@ import (
 	"github.com/syncthing/syncthing/internal/events"
 	"github.com/syncthing/syncthing/internal/ignore"
 	"github.com/syncthing/syncthing/internal/osutil"
-	"github.com/syncthing/syncthing/internal/scanner"
 	"github.com/syncthing/syncthing/internal/stats"
 	"github.com/syncthing/syncthing/internal/symlinks"
 	"github.com/syncthing/syncthing/internal/versioner"
@@ -787,16 +786,6 @@ func (m *Model) CurrentGlobalFile(folder string, file string) (protocol.FileInfo
 	}
 	f, ok := fs.GetGlobal(file)
 	return f, ok
-}
-
-type cFiler struct {
-	m *Model
-	r string
-}
-
-// Implements scanner.CurrentFiler
-func (cf cFiler) CurrentFile(file string) (protocol.FileInfo, bool) {
-	return cf.m.CurrentFolderFile(cf.r, file)
 }
 
 // ConnectedTo returns true if we are connected to the named device.
