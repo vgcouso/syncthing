@@ -42,11 +42,11 @@ func (s *folderScanner) scan(subs []string) error {
 	w := &scanner.Walker{
 		Dir:           s.path,
 		Subs:          subs,
-		Matcher:       ignores,
+		Matcher:       s.ignores,
 		BlockSize:     protocol.BlockSize,
 		TempNamer:     defTempNamer,
 		TempLifetime:  24 * time.Hour, // time.Duration(m.cfg.Options().KeepTemporariesH) * time.Hour,
-		CurrentFiler:  cFiler{fs},
+		CurrentFiler:  cFiler{s.fs},
 		IgnorePerms:   false, // folderCfg.IgnorePerms,
 		AutoNormalize: true,  // folderCfg.AutoNormalize,
 		Hashers:       8,     // folderCfg.Hashers,
