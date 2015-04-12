@@ -555,9 +555,7 @@ func ldbRemoveFromGlobal(db dbReader, batch dbWriter, folder, device, file []byt
 	}
 }
 
-func ldbWithHave(db *leveldb.DB, folder, device []byte, truncate bool, fn Iterator) {
-	start := deviceKey(folder, device, nil)                            // before all folder/device files
-	limit := deviceKey(folder, device, []byte{0xff, 0xff, 0xff, 0xff}) // after all folder/device files
+func ldbWithHave(db *leveldb.DB, folder, prefix, device []byte, truncate bool, fn Iterator) {
 	snap, err := db.GetSnapshot()
 	if err != nil {
 		panic(err)
@@ -572,7 +570,7 @@ func ldbWithHave(db *leveldb.DB, folder, device []byte, truncate bool, fn Iterat
 		snap.Release()
 	}()
 
-	dbi := snap.NewIterator(&util.Range{Start: start, Limit: limit}, nil)
+	dbi := snap.NewIterator(util.BytesPrefix(deviceKey(folder, device, prefix)), nil)
 	defer dbi.Release()
 
 	for dbi.Next() {

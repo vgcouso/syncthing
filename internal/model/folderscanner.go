@@ -2,13 +2,18 @@ package model
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
+	"strings"
+	"time"
 
 	"github.com/syncthing/protocol"
 	"github.com/syncthing/syncthing/internal/db"
+	"github.com/syncthing/syncthing/internal/events"
 	"github.com/syncthing/syncthing/internal/ignore"
 	"github.com/syncthing/syncthing/internal/osutil"
+	"github.com/syncthing/syncthing/internal/scanner"
 )
 
 // The scanner scans a folder, or a subdirectory in a folder, and handles the diff
@@ -16,9 +21,10 @@ type folderScanner struct {
 	path    string
 	fs      *db.FileSet
 	ignores *ignore.Matcher
+	shortID uint64
 }
 
-func (s *folderScanner) Scan(subs []string) error {
+func (s *folderScanner) scan(subs []string) error {
 	// Subdirectories should use native directory separator and encoding
 	for i := range subs {
 		subs[i] = osutil.NativeFilename(subs[i])
@@ -39,38 +45,32 @@ func (s *folderScanner) Scan(subs []string) error {
 		Matcher:       ignores,
 		BlockSize:     protocol.BlockSize,
 		TempNamer:     defTempNamer,
-		TempLifetime:  time.Duration(m.cfg.Options().KeepTemporariesH) * time.Hour,
+		TempLifetime:  24 * time.Hour, // time.Duration(m.cfg.Options().KeepTemporariesH) * time.Hour,
 		CurrentFiler:  cFiler{fs},
-		IgnorePerms:   folderCfg.IgnorePerms,
-		AutoNormalize: folderCfg.AutoNormalize,
-		Hashers:       folderCfg.Hashers,
-		ShortID:       m.shortID,
+		IgnorePerms:   false, // folderCfg.IgnorePerms,
+		AutoNormalize: true,  // folderCfg.AutoNormalize,
+		Hashers:       8,     // folderCfg.Hashers,
+		ShortID:       s.shortID,
 	}
 
-	runner.setState(FolderScanning)
-	defer runner.setState(FolderIdle)
 	fchan, err := w.Walk()
-
 	if err != nil {
-		m.cfg.SetFolderError(folder, err)
 		return err
 	}
+
 	batchSize := 100
 	batch := make([]protocol.FileInfo, 0, batchSize)
 	for f := range fchan {
-		events.Default.Log(events.LocalIndexUpdated, map[string]interface{}{
-			"folder":   folder,
-			"name":     f.Name,
-			"modified": time.Unix(f.Modified, 0),
-			"flags":    fmt.Sprintf("0%o", f.Flags),
-			"size":     f.Size(),
-		})
 		if len(batch) == batchSize {
 			if err := m.CheckFolderHealth(folder); err != nil {
 				l.Infof("Stopping folder %s mid-scan due to folder error: %s", folder, err)
 				return err
 			}
 			fs.Update(protocol.LocalDeviceID, batch)
+			events.Default.Log(events.LocalIndexUpdated, map[string]interface{}{
+				"folder":   folder,
+				"numFiles": len(batch),
+			})
 			batch = batch[:0]
 		}
 		batch = append(batch, f)

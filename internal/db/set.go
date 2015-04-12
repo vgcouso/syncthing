@@ -147,14 +147,21 @@ func (s *FileSet) WithHave(device protocol.DeviceID, fn Iterator) {
 	if debug {
 		l.Debugf("%s WithHave(%v)", s.folder, device)
 	}
-	ldbWithHave(s.db, []byte(s.folder), device[:], false, nativeFileIterator(fn))
+	ldbWithHave(s.db, []byte(s.folder), nil, device[:], false, nativeFileIterator(fn))
 }
 
 func (s *FileSet) WithHaveTruncated(device protocol.DeviceID, fn Iterator) {
 	if debug {
 		l.Debugf("%s WithHaveTruncated(%v)", s.folder, device)
 	}
-	ldbWithHave(s.db, []byte(s.folder), device[:], true, nativeFileIterator(fn))
+	ldbWithHave(s.db, []byte(s.folder), nil, device[:], true, nativeFileIterator(fn))
+}
+
+func (s *FileSet) WithPrefixedHaveTruncated(prefix string, device protocol.DeviceID, fn Iterator) {
+	if debug {
+		l.Debugf("%s WithHaveTruncated(%v)", s.folder, device)
+	}
+	ldbWithHave(s.db, []byte(s.folder), []byte(prefix), device[:], true, nativeFileIterator(fn))
 }
 
 func (s *FileSet) WithGlobal(fn Iterator) {
