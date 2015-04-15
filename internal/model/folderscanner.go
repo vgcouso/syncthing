@@ -18,6 +18,7 @@ import (
 
 // The scanner scans a folder, or a subdirectory in a folder, and handles the diff
 type folderScanner struct {
+	folder  string
 	path    string
 	fs      *db.FileSet
 	ignores *ignore.Matcher
@@ -62,13 +63,13 @@ func (s *folderScanner) scan(subs []string) error {
 	batch := make([]protocol.FileInfo, 0, batchSize)
 	for f := range fchan {
 		if len(batch) == batchSize {
-			if err := m.CheckFolderHealth(folder); err != nil {
-				l.Infof("Stopping folder %s mid-scan due to folder error: %s", folder, err)
+			if err := m.CheckFolderHealth(s.folder); err != nil {
+				l.Infof("Stopping folder %s mid-scan due to folder error: %s", s.folder, err)
 				return err
 			}
-			fs.Update(protocol.LocalDeviceID, batch)
+			s.fs.Update(protocol.LocalDeviceID, batch)
 			events.Default.Log(events.LocalIndexUpdated, map[string]interface{}{
-				"folder":   folder,
+				"folder":   s.folder,
 				"numFiles": len(batch),
 			})
 			batch = batch[:0]
@@ -76,17 +77,17 @@ func (s *folderScanner) scan(subs []string) error {
 		batch = append(batch, f)
 	}
 
-	if err := m.CheckFolderHealth(folder); err != nil {
-		l.Infof("Stopping folder %s mid-scan due to folder error: %s", folder, err)
+	if err := m.CheckFolderHealth(s.folder); err != nil {
+		l.Infof("Stopping folder %s mid-scan due to folder error: %s", s.folder, err)
 		return err
 	} else if len(batch) > 0 {
-		fs.Update(protocol.LocalDeviceID, batch)
+		s.fs.Update(protocol.LocalDeviceID, batch)
 	}
 
 	batch = batch[:0]
 	// TODO: We should limit the Have scanning to start at sub
 	seenPrefix := false
-	fs.WithHaveTruncated(protocol.LocalDeviceID, func(fi db.FileIntf) bool {
+	s.fs.WithHaveTruncated(protocol.LocalDeviceID, func(fi db.FileIntf) bool {
 		f := fi.(db.FileInfoTruncated)
 		hasPrefix := len(subs) == 0
 		for _, sub := range subs {
@@ -109,11 +110,11 @@ func (s *folderScanner) scan(subs []string) error {
 			}
 
 			if len(batch) == batchSize {
-				fs.Update(protocol.LocalDeviceID, batch)
+				s.fs.Update(protocol.LocalDeviceID, batch)
 				batch = batch[:0]
 			}
 
-			if (ignores != nil && ignores.Match(f.Name)) || symlinkInvalid(f.IsSymlink()) {
+			if (s.ignores != nil && s.ignores.Match(f.Name)) || symlinkInvalid(f.IsSymlink()) {
 				// File has been ignored or an unsupported symlink. Set invalid bit.
 				if debug {
 					l.Debugln("setting invalid bit on ignored", f)
@@ -125,14 +126,14 @@ func (s *folderScanner) scan(subs []string) error {
 					Version:  f.Version, // The file is still the same, so don't bump version
 				}
 				events.Default.Log(events.LocalIndexUpdated, map[string]interface{}{
-					"folder":   folder,
+					"folder":   s.folder,
 					"name":     f.Name,
 					"modified": time.Unix(f.Modified, 0),
 					"flags":    fmt.Sprintf("0%o", f.Flags),
 					"size":     f.Size(),
 				})
 				batch = append(batch, nf)
-			} else if _, err := os.Lstat(filepath.Join(folderCfg.Path(), f.Name)); err != nil {
+			} else if _, err := os.Lstat(filepath.Join(s.path, f.Name)); err != nil {
 				// File has been deleted.
 
 				// We don't specifically verify that the error is
@@ -146,10 +147,10 @@ func (s *folderScanner) scan(subs []string) error {
 					Name:     f.Name,
 					Flags:    f.Flags | protocol.FlagDeleted,
 					Modified: f.Modified,
-					Version:  f.Version.Update(m.shortID),
+					Version:  f.Version.Update(s.shortID),
 				}
 				events.Default.Log(events.LocalIndexUpdated, map[string]interface{}{
-					"folder":   folder,
+					"folder":   s.folder,
 					"name":     f.Name,
 					"modified": time.Unix(f.Modified, 0),
 					"flags":    fmt.Sprintf("0%o", f.Flags),
@@ -161,7 +162,7 @@ func (s *folderScanner) scan(subs []string) error {
 		return true
 	})
 	if len(batch) > 0 {
-		fs.Update(protocol.LocalDeviceID, batch)
+		s.fs.Update(protocol.LocalDeviceID, batch)
 	}
 
 	return nil

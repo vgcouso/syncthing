@@ -529,9 +529,17 @@ func syncthingMain() {
 
 	setupGUI(cfg, m)
 
-	// Add configured folders to the model.
+	// Clear out old indexes for other devices. Otherwise we'll start up and
+	// start needing a bunch of files which are nowhere to be found. This
+	// needs to be changed when we correctly do persistent indexes.
 	for _, folderCfg := range cfg.Folders() {
 		m.AddFolder(folderCfg)
+		for _, device := range folderCfg.DeviceIDs() {
+			if device == myID {
+				continue
+			}
+			m.Index(device, folderCfg.ID, nil, 0, nil)
+		}
 	}
 
 	// The default port we announce, possibly modified by setupUPnP next.
