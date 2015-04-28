@@ -424,7 +424,8 @@ func syncthingMain() {
 	// severity.
 	mainSvc := suture.New("main", suture.Spec{
 		Log: func(line string) {
-			l.Infoln(line)
+			// XXX
+			l.Debugln(line)
 		},
 	})
 	mainSvc.ServeBackground()
@@ -586,6 +587,7 @@ func syncthingMain() {
 	}
 
 	m := model.NewModel(cfg, myID, myName, "syncthing", Version, ldb)
+	cfg.Subscribe(m)
 
 	if t := os.Getenv("STDEADLOCKTIMEOUT"); len(t) > 0 {
 		it, err := strconv.Atoi(t)
@@ -634,6 +636,7 @@ func syncthingMain() {
 	}
 
 	connectionSvc := newConnectionSvc(cfg, myID, m, tlsCfg)
+	cfg.Subscribe(connectionSvc)
 	mainSvc.Add(connectionSvc)
 
 	for _, folder := range cfg.Folders() {
@@ -795,6 +798,7 @@ func setupGUI(mainSvc *suture.Supervisor, cfg *config.Wrapper, m *model.Model) {
 			if err != nil {
 				l.Fatalln("Cannot start GUI:", err)
 			}
+			cfg.Subscribe(api)
 			mainSvc.Add(api)
 
 			if opts.StartBrowser && !noBrowser && !stRestarting {
