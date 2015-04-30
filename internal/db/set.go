@@ -52,6 +52,7 @@ func NewFileSet(folder string, db *leveldb.DB) *FileSet {
 		mutex:        sync.NewMutex(),
 	}
 
+	s.db.ldbRebuildGlobals([]byte(folder))
 	s.db.ldbCheckGlobals([]byte(folder))
 
 	var deviceID protocol.DeviceID

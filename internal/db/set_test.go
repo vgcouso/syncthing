@@ -780,6 +780,9 @@ func TestListDropFolder(t *testing.T) {
 
 	db.DropFolder(ldb, "test1")
 
+	s0 = db.NewFileSet("test0", ldb)
+	s1 = db.NewFileSet("test1", ldb)
+
 	expectedFolderList = []string{"test0"}
 	if actualFolderList := db.ListFolders(ldb); !reflect.DeepEqual(actualFolderList, expectedFolderList) {
 		t.Fatalf("FolderList mismatch\nE: %v\nA: %v", expectedFolderList, actualFolderList)
