@@ -47,7 +47,7 @@ func NewFileSet(folder string, db *leveldb.DB) *FileSet {
 	var s = FileSet{
 		localVersion: make(map[protocol.DeviceID]int64),
 		folder:       folder,
-		db:           ldb{db},
+		db:           newLDB(db),
 		blockmap:     NewBlockMap(db, folder),
 		mutex:        sync.NewMutex(),
 	}
@@ -217,13 +217,13 @@ func (s *FileSet) LocalVersion(device protocol.DeviceID) int64 {
 
 // ListFolders returns the folder IDs seen in the database.
 func ListFolders(db *leveldb.DB) []string {
-	return ldb{db}.ldbListFolders()
+	return newLDB(db).ldbListFolders()
 }
 
 // DropFolder clears out all information related to the given folder from the
 // database.
 func DropFolder(db *leveldb.DB, folder string) {
-	ldb{db}.ldbDropFolder([]byte(folder))
+	newLDB(db).ldbDropFolder([]byte(folder))
 	bm := &BlockMap{
 		db:     db,
 		folder: folder,
