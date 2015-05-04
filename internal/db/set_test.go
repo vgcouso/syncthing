@@ -9,14 +9,15 @@ package db_test
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"reflect"
 	"sort"
 	"testing"
+	"time"
 
+	"github.com/boltdb/bolt"
 	"github.com/syncthing/protocol"
 	"github.com/syncthing/syncthing/internal/db"
-	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/syndtr/goleveldb/leveldb/storage"
 )
 
 var remoteDevice0, remoteDevice1 protocol.DeviceID
@@ -96,11 +97,14 @@ func (l fileList) String() string {
 }
 
 func TestGlobalSet(t *testing.T) {
-
-	ldb, err := leveldb.Open(storage.NewMemStorage(), nil)
+	ldb, err := bolt.Open(fmt.Sprintf("testdata/test-%s.db", time.Now().Format(time.RFC3339Nano)), 0644, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer func() {
+		ldb.Close()
+		os.RemoveAll(ldb.Path())
+	}()
 
 	m := db.NewFileSet("test", ldb)
 
@@ -256,10 +260,14 @@ func TestGlobalSet(t *testing.T) {
 }
 
 func TestNeedWithInvalid(t *testing.T) {
-	ldb, err := leveldb.Open(storage.NewMemStorage(), nil)
+	ldb, err := bolt.Open(fmt.Sprintf("testdata/test-%s.db", time.Now().Format(time.RFC3339Nano)), 0644, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer func() {
+		ldb.Close()
+		os.RemoveAll(ldb.Path())
+	}()
 
 	s := db.NewFileSet("test", ldb)
 
@@ -296,10 +304,14 @@ func TestNeedWithInvalid(t *testing.T) {
 }
 
 func TestUpdateToInvalid(t *testing.T) {
-	ldb, err := leveldb.Open(storage.NewMemStorage(), nil)
+	ldb, err := bolt.Open(fmt.Sprintf("testdata/test-%s.db", time.Now().Format(time.RFC3339Nano)), 0644, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer func() {
+		ldb.Close()
+		os.RemoveAll(ldb.Path())
+	}()
 
 	s := db.NewFileSet("test", ldb)
 
@@ -331,10 +343,14 @@ func TestUpdateToInvalid(t *testing.T) {
 }
 
 func TestInvalidAvailability(t *testing.T) {
-	ldb, err := leveldb.Open(storage.NewMemStorage(), nil)
+	ldb, err := bolt.Open(fmt.Sprintf("testdata/test-%s.db", time.Now().Format(time.RFC3339Nano)), 0644, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer func() {
+		ldb.Close()
+		os.RemoveAll(ldb.Path())
+	}()
 
 	s := db.NewFileSet("test", ldb)
 
@@ -372,10 +388,15 @@ func TestInvalidAvailability(t *testing.T) {
 }
 
 func TestLocalDeleted(t *testing.T) {
-	ldb, err := leveldb.Open(storage.NewMemStorage(), nil)
+	ldb, err := bolt.Open(fmt.Sprintf("testdata/test-%s.db", time.Now().Format(time.RFC3339Nano)), 0644, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer func() {
+		ldb.Close()
+		os.RemoveAll(ldb.Path())
+	}()
+
 	m := db.NewFileSet("test", ldb)
 
 	local1 := []protocol.FileInfo{
@@ -446,10 +467,14 @@ func TestLocalDeleted(t *testing.T) {
 }
 
 func Benchmark10kReplace(b *testing.B) {
-	ldb, err := leveldb.Open(storage.NewMemStorage(), nil)
+	ldb, err := bolt.Open(fmt.Sprintf("testdata/test-%s.db", time.Now().Format(time.RFC3339Nano)), 0644, nil)
 	if err != nil {
 		b.Fatal(err)
 	}
+	defer func() {
+		ldb.Close()
+		os.RemoveAll(ldb.Path())
+	}()
 
 	var local []protocol.FileInfo
 	for i := 0; i < 10000; i++ {
@@ -469,10 +494,14 @@ func Benchmark10kUpdateChg(b *testing.B) {
 		remote = append(remote, protocol.FileInfo{Name: fmt.Sprintf("file%d", i), Version: protocol.Vector{{ID: myID, Value: 1000}}})
 	}
 
-	ldb, err := leveldb.Open(storage.NewMemStorage(), nil)
+	ldb, err := bolt.Open(fmt.Sprintf("testdata/test-%s.db", time.Now().Format(time.RFC3339Nano)), 0644, nil)
 	if err != nil {
 		b.Fatal(err)
 	}
+	defer func() {
+		ldb.Close()
+		os.RemoveAll(ldb.Path())
+	}()
 
 	m := db.NewFileSet("test", ldb)
 	m.Replace(remoteDevice0, remote)
@@ -501,10 +530,15 @@ func Benchmark10kUpdateSme(b *testing.B) {
 		remote = append(remote, protocol.FileInfo{Name: fmt.Sprintf("file%d", i), Version: protocol.Vector{{ID: myID, Value: 1000}}})
 	}
 
-	ldb, err := leveldb.Open(storage.NewMemStorage(), nil)
+	ldb, err := bolt.Open(fmt.Sprintf("testdata/test-%s.db", time.Now().Format(time.RFC3339Nano)), 0644, nil)
 	if err != nil {
 		b.Fatal(err)
 	}
+	defer func() {
+		ldb.Close()
+		os.RemoveAll(ldb.Path())
+	}()
+
 	m := db.NewFileSet("test", ldb)
 	m.Replace(remoteDevice0, remote)
 
@@ -521,16 +555,53 @@ func Benchmark10kUpdateSme(b *testing.B) {
 	}
 }
 
+func Benchmark10kUpdateChgOne(b *testing.B) {
+	var remote []protocol.FileInfo
+	for i := 0; i < 10000; i++ {
+		remote = append(remote, protocol.FileInfo{Name: fmt.Sprintf("file%d", i), Version: protocol.Vector{{ID: myID, Value: 1000}}})
+	}
+
+	ldb, err := bolt.Open(fmt.Sprintf("testdata/test-%s.db", time.Now().Format(time.RFC3339Nano)), 0644, nil)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer func() {
+		ldb.Close()
+		os.RemoveAll(ldb.Path())
+	}()
+
+	m := db.NewFileSet("test", ldb)
+	m.Replace(remoteDevice0, remote)
+
+	var local []protocol.FileInfo
+	for i := 0; i < 10000; i++ {
+		local = append(local, protocol.FileInfo{Name: fmt.Sprintf("file%d", i), Version: protocol.Vector{{ID: myID, Value: 1000}}})
+	}
+
+	m.ReplaceWithDelete(protocol.LocalDeviceID, local, myID)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		idx := i % 10000
+		local[idx].Version = local[idx].Version.Update(myID)
+		m.Update(protocol.LocalDeviceID, local[idx:idx+1])
+	}
+}
+
 func Benchmark10kNeed2k(b *testing.B) {
 	var remote []protocol.FileInfo
 	for i := 0; i < 10000; i++ {
 		remote = append(remote, protocol.FileInfo{Name: fmt.Sprintf("file%d", i), Version: protocol.Vector{{ID: myID, Value: 1000}}})
 	}
 
-	ldb, err := leveldb.Open(storage.NewMemStorage(), nil)
+	ldb, err := bolt.Open(fmt.Sprintf("testdata/test-%s.db", time.Now().Format(time.RFC3339Nano)), 0644, nil)
 	if err != nil {
 		b.Fatal(err)
 	}
+	defer func() {
+		ldb.Close()
+		os.RemoveAll(ldb.Path())
+	}()
 
 	m := db.NewFileSet("test", ldb)
 	m.Replace(remoteDevice0, remote)
@@ -560,10 +631,14 @@ func Benchmark10kHaveFullList(b *testing.B) {
 		remote = append(remote, protocol.FileInfo{Name: fmt.Sprintf("file%d", i), Version: protocol.Vector{{ID: myID, Value: 1000}}})
 	}
 
-	ldb, err := leveldb.Open(storage.NewMemStorage(), nil)
+	ldb, err := bolt.Open(fmt.Sprintf("testdata/test-%s.db", time.Now().Format(time.RFC3339Nano)), 0644, nil)
 	if err != nil {
 		b.Fatal(err)
 	}
+	defer func() {
+		ldb.Close()
+		os.RemoveAll(ldb.Path())
+	}()
 
 	m := db.NewFileSet("test", ldb)
 	m.Replace(remoteDevice0, remote)
@@ -593,10 +668,14 @@ func Benchmark10kGlobal(b *testing.B) {
 		remote = append(remote, protocol.FileInfo{Name: fmt.Sprintf("file%d", i), Version: protocol.Vector{{ID: myID, Value: 1000}}})
 	}
 
-	ldb, err := leveldb.Open(storage.NewMemStorage(), nil)
+	ldb, err := bolt.Open(fmt.Sprintf("testdata/test-%s.db", time.Now().Format(time.RFC3339Nano)), 0644, nil)
 	if err != nil {
 		b.Fatal(err)
 	}
+	defer func() {
+		ldb.Close()
+		os.RemoveAll(ldb.Path())
+	}()
 
 	m := db.NewFileSet("test", ldb)
 	m.Replace(remoteDevice0, remote)
@@ -621,10 +700,14 @@ func Benchmark10kGlobal(b *testing.B) {
 }
 
 func TestGlobalReset(t *testing.T) {
-	ldb, err := leveldb.Open(storage.NewMemStorage(), nil)
+	ldb, err := bolt.Open(fmt.Sprintf("testdata/test-%s.db", time.Now().Format(time.RFC3339Nano)), 0644, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer func() {
+		ldb.Close()
+		os.RemoveAll(ldb.Path())
+	}()
 
 	m := db.NewFileSet("test", ldb)
 
@@ -662,10 +745,14 @@ func TestGlobalReset(t *testing.T) {
 }
 
 func TestNeed(t *testing.T) {
-	ldb, err := leveldb.Open(storage.NewMemStorage(), nil)
+	ldb, err := bolt.Open(fmt.Sprintf("testdata/test-%s.db", time.Now().Format(time.RFC3339Nano)), 0644, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer func() {
+		ldb.Close()
+		os.RemoveAll(ldb.Path())
+	}()
 
 	m := db.NewFileSet("test", ldb)
 
@@ -703,10 +790,14 @@ func TestNeed(t *testing.T) {
 }
 
 func TestLocalVersion(t *testing.T) {
-	ldb, err := leveldb.Open(storage.NewMemStorage(), nil)
+	ldb, err := bolt.Open(fmt.Sprintf("testdata/test-%s.db", time.Now().Format(time.RFC3339Nano)), 0644, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer func() {
+		ldb.Close()
+		os.RemoveAll(ldb.Path())
+	}()
 
 	m := db.NewFileSet("test", ldb)
 
@@ -742,10 +833,14 @@ func TestLocalVersion(t *testing.T) {
 }
 
 func TestListDropFolder(t *testing.T) {
-	ldb, err := leveldb.Open(storage.NewMemStorage(), nil)
+	ldb, err := bolt.Open(fmt.Sprintf("testdata/test-%s.db", time.Now().Format(time.RFC3339Nano)), 0644, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer func() {
+		ldb.Close()
+		os.RemoveAll(ldb.Path())
+	}()
 
 	s0 := db.NewFileSet("test0", ldb)
 	local1 := []protocol.FileInfo{
@@ -793,10 +888,14 @@ func TestListDropFolder(t *testing.T) {
 }
 
 func TestGlobalNeedWithInvalid(t *testing.T) {
-	ldb, err := leveldb.Open(storage.NewMemStorage(), nil)
+	ldb, err := bolt.Open(fmt.Sprintf("testdata/test-%s.db", time.Now().Format(time.RFC3339Nano)), 0644, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer func() {
+		ldb.Close()
+		os.RemoveAll(ldb.Path())
+	}()
 
 	s := db.NewFileSet("test1", ldb)
 
@@ -833,10 +932,14 @@ func TestGlobalNeedWithInvalid(t *testing.T) {
 }
 
 func TestLongPath(t *testing.T) {
-	ldb, err := leveldb.Open(storage.NewMemStorage(), nil)
+	ldb, err := bolt.Open(fmt.Sprintf("testdata/test-%s.db", time.Now().Format(time.RFC3339Nano)), 0644, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer func() {
+		ldb.Close()
+		os.RemoveAll(ldb.Path())
+	}()
 
 	s := db.NewFileSet("test", ldb)
 

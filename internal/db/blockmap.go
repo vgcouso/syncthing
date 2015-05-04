@@ -17,109 +17,151 @@ import (
 	"encoding/binary"
 	"sort"
 
+	"github.com/boltdb/bolt"
 	"github.com/syncthing/protocol"
 	"github.com/syncthing/syncthing/internal/config"
 	"github.com/syncthing/syncthing/internal/osutil"
 	"github.com/syncthing/syncthing/internal/sync"
-
-	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
 var blockFinder *BlockFinder
+var blocksBucketID = []byte("blocks")
 
 type BlockMap struct {
-	db     *leveldb.DB
-	folder string
+	db     *bolt.DB
+	folder []byte
 }
 
-func NewBlockMap(db *leveldb.DB, folder string) *BlockMap {
+func NewBlockMap(db *bolt.DB, folder string) *BlockMap {
+	db.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists(blocksBucketID)
+		if err != nil {
+			panic(err)
+		}
+		return nil
+	})
 	return &BlockMap{
 		db:     db,
-		folder: folder,
+		folder: []byte(folder),
 	}
 }
+
+/*
+	"blocks":
+		<folder name>:
+			<block hash>:
+				<file name>: index
+*/
 
 // Add files to the block map, ignoring any deleted or invalid files.
 func (m *BlockMap) Add(files []protocol.FileInfo) error {
-	batch := new(leveldb.Batch)
-	buf := make([]byte, 4)
-	for _, file := range files {
-		if file.IsDirectory() || file.IsDeleted() || file.IsInvalid() {
-			continue
+	return m.db.Update(func(tx *bolt.Tx) error {
+		folBkt, err := tx.Bucket(blocksBucketID).CreateBucketIfNotExists(m.folder)
+		if err != nil {
+			panic(err)
 		}
+		for _, file := range files {
+			if file.IsDirectory() || file.IsDeleted() || file.IsInvalid() {
+				continue
+			}
 
-		for i, block := range file.Blocks {
-			binary.BigEndian.PutUint32(buf, uint32(i))
-			batch.Put(m.blockKey(block.Hash, file.Name), buf)
+			name := []byte(file.Name)
+			for i, block := range file.Blocks {
+				bkt, err := folBkt.CreateBucketIfNotExists(block.Hash)
+				if err != nil {
+					panic(err)
+				}
+				buf := make([]byte, 4)
+				binary.BigEndian.PutUint32(buf, uint32(i))
+				bkt.Put(name, buf)
+			}
 		}
-	}
-	return m.db.Write(batch, nil)
+		return nil
+	})
 }
 
 // Update block map state, removing any deleted or invalid files.
 func (m *BlockMap) Update(files []protocol.FileInfo) error {
-	batch := new(leveldb.Batch)
-	buf := make([]byte, 4)
-	for _, file := range files {
-		if file.IsDirectory() {
-			continue
+	return m.db.Update(func(tx *bolt.Tx) error {
+		folBkt, err := tx.Bucket(blocksBucketID).CreateBucketIfNotExists(m.folder)
+		if err != nil {
+			panic(err)
 		}
-
-		if file.IsDeleted() || file.IsInvalid() {
-			for _, block := range file.Blocks {
-				batch.Delete(m.blockKey(block.Hash, file.Name))
+		for _, file := range files {
+			if file.IsDirectory() {
+				continue
 			}
-			continue
-		}
 
-		for i, block := range file.Blocks {
-			binary.BigEndian.PutUint32(buf, uint32(i))
-			batch.Put(m.blockKey(block.Hash, file.Name), buf)
+			name := []byte(file.Name)
+			if file.IsDeleted() || file.IsInvalid() {
+				for _, block := range file.Blocks {
+					folBkt.Bucket(block.Hash).Delete(name)
+				}
+				continue
+			}
+
+			for i, block := range file.Blocks {
+				bkt, err := folBkt.CreateBucketIfNotExists(block.Hash)
+				if err != nil {
+					panic(err)
+				}
+				buf := make([]byte, 4)
+				binary.BigEndian.PutUint32(buf, uint32(i))
+				bkt.Put(name, buf)
+			}
 		}
-	}
-	return m.db.Write(batch, nil)
+		return nil
+	})
 }
 
 // Discard block map state, removing the given files
 func (m *BlockMap) Discard(files []protocol.FileInfo) error {
-	batch := new(leveldb.Batch)
-	for _, file := range files {
-		for _, block := range file.Blocks {
-			batch.Delete(m.blockKey(block.Hash, file.Name))
+	m.db.Update(func(tx *bolt.Tx) error {
+		folBkt, err := tx.Bucket(blocksBucketID).CreateBucketIfNotExists(m.folder)
+		if err != nil {
+			panic(err)
 		}
-	}
-	return m.db.Write(batch, nil)
+		for _, file := range files {
+			name := []byte(file.Name)
+			for _, block := range file.Blocks {
+				if bkt := folBkt.Bucket(block.Hash); bkt != nil {
+					bkt.Delete(name)
+				}
+			}
+		}
+		return nil
+	})
+	return nil
 }
 
 // Drop block map, removing all entries related to this block map from the db.
 func (m *BlockMap) Drop() error {
-	batch := new(leveldb.Batch)
-	iter := m.db.NewIterator(util.BytesPrefix(m.blockKey(nil, "")[:1+64]), nil)
-	defer iter.Release()
-	for iter.Next() {
-		batch.Delete(iter.Key())
-	}
-	if iter.Error() != nil {
-		return iter.Error()
-	}
-	return m.db.Write(batch, nil)
-}
-
-func (m *BlockMap) blockKey(hash []byte, file string) []byte {
-	return toBlockKey(hash, m.folder, file)
+	return m.db.Update(func(tx *bolt.Tx) error {
+		if err := tx.Bucket(blocksBucketID).DeleteBucket(m.folder); err != nil && err != bolt.ErrBucketNotFound {
+			panic(err)
+		}
+		return nil
+	})
 }
 
 type BlockFinder struct {
-	db      *leveldb.DB
+	db      *bolt.DB
 	folders []string
 	mut     sync.RWMutex
 }
 
-func NewBlockFinder(db *leveldb.DB, cfg *config.Wrapper) *BlockFinder {
+func NewBlockFinder(db *bolt.DB, cfg *config.Wrapper) *BlockFinder {
 	if blockFinder != nil {
 		return blockFinder
 	}
+
+	db.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists(blocksBucketID)
+		if err != nil {
+			panic(err)
+		}
+		return nil
+	})
 
 	f := &BlockFinder{
 		db:  db,
@@ -151,24 +193,36 @@ func (f *BlockFinder) Changed(cfg config.Configuration) error {
 // they are happy with the block) or false to continue iterating for whatever
 // reason. The iterator finally returns the result, whether or not a
 // satisfying block was eventually found.
-func (f *BlockFinder) Iterate(hash []byte, iterFn func(string, string, int32) bool) bool {
+func (f *BlockFinder) Iterate(hash []byte, iterFn func(string, string, int32) bool) (found bool) {
 	f.mut.RLock()
 	folders := f.folders
 	f.mut.RUnlock()
-	for _, folder := range folders {
-		key := toBlockKey(hash, folder, "")
-		iter := f.db.NewIterator(util.BytesPrefix(key), nil)
-		defer iter.Release()
 
-		for iter.Next() && iter.Error() == nil {
-			folder, file := fromBlockKey(iter.Key())
-			index := int32(binary.BigEndian.Uint32(iter.Value()))
-			if iterFn(folder, osutil.NativeFilename(file), index) {
-				return true
+	f.db.View(func(tx *bolt.Tx) error {
+		blocBuc := tx.Bucket(blocksBucketID)
+		for _, folder := range folders {
+			folBkt := blocBuc.Bucket([]byte(folder))
+			if folBkt == nil {
+				continue
+			}
+			bkt := folBkt.Bucket(hash)
+			if bkt == nil {
+				continue
+			}
+
+			c := bkt.Cursor()
+			for file, v := c.First(); file != nil; file, v = c.Next() {
+				index := int32(binary.BigEndian.Uint32(v))
+				if iterFn(folder, osutil.NativeFilename(string(file)), index) {
+					found = true
+					return nil
+				}
 			}
 		}
-	}
-	return false
+		return nil
+	})
+
+	return
 }
 
 // Fix repairs incorrect blockmap entries, removing the old entry and
@@ -176,11 +230,25 @@ func (f *BlockFinder) Iterate(hash []byte, iterFn func(string, string, int32) bo
 func (f *BlockFinder) Fix(folder, file string, index int32, oldHash, newHash []byte) error {
 	buf := make([]byte, 4)
 	binary.BigEndian.PutUint32(buf, uint32(index))
+	f.db.Update(func(tx *bolt.Tx) error {
+		folBkt, err := tx.Bucket(blocksBucketID).CreateBucketIfNotExists([]byte(folder))
+		if err != nil {
+			panic(err)
+		}
 
-	batch := new(leveldb.Batch)
-	batch.Delete(toBlockKey(oldHash, folder, file))
-	batch.Put(toBlockKey(newHash, folder, file), buf)
-	return f.db.Write(batch, nil)
+		bkt := folBkt.Bucket(oldHash)
+		if bkt != nil {
+			bkt.Delete([]byte(file))
+		}
+
+		bkt, err = folBkt.CreateBucketIfNotExists(newHash)
+		if err != nil {
+			panic(err)
+		}
+		bkt.Put([]byte(file), buf)
+		return nil
+	})
+	return nil
 }
 
 // m.blockKey returns a byte slice encoding the following information:

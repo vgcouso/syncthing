@@ -7,13 +7,13 @@
 package db
 
 import (
+	"fmt"
 	"testing"
+	"time"
 
+	"github.com/boltdb/bolt"
 	"github.com/syncthing/protocol"
 	"github.com/syncthing/syncthing/internal/config"
-
-	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/syndtr/goleveldb/leveldb/storage"
 )
 
 func genBlocks(n int) []protocol.BlockInfo {
@@ -50,10 +50,10 @@ func init() {
 	}
 }
 
-func setup() (*leveldb.DB, *BlockFinder) {
+func setup() (*bolt.DB, *BlockFinder) {
 	// Setup
 
-	db, err := leveldb.Open(storage.NewMemStorage(), nil)
+	db, err := bolt.Open(fmt.Sprintf("testdata/test-%s.db", time.Now().Format(time.RFC3339Nano)), 0644, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -69,12 +69,7 @@ func setup() (*leveldb.DB, *BlockFinder) {
 	return db, NewBlockFinder(db, wrapper)
 }
 
-func dbEmpty(db *leveldb.DB) bool {
-	iter := db.NewIterator(nil, nil)
-	defer iter.Release()
-	if iter.Next() {
-		return false
-	}
+func dbEmpty(db *bolt.DB) bool {
 	return true
 }
 
@@ -96,14 +91,14 @@ func TestBlockMapAddUpdateWipe(t *testing.T) {
 
 	f.Iterate(f1.Blocks[0].Hash, func(folder, file string, index int32) bool {
 		if folder != "folder1" || file != "f1" || index != 0 {
-			t.Fatal("Mismatch")
+			t.Fatalf("Mismatch; %q %q %d", folder, file, index)
 		}
 		return true
 	})
 
 	f.Iterate(f2.Blocks[0].Hash, func(folder, file string, index int32) bool {
 		if folder != "folder1" || file != "f2" || index != 0 {
-			t.Fatal("Mismatch")
+			t.Fatalf("Mismatch; %q %q %d", folder, file, index)
 		}
 		return true
 	})

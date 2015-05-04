@@ -322,7 +322,8 @@ func ldbReplace(db *leveldb.DB, folder, device []byte, fs []protocol.FileInfo) i
 }
 
 func ldbReplaceWithDelete(db *leveldb.DB, folder, device []byte, fs []protocol.FileInfo, myID uint64) int64 {
-	mtimeRepo := NewVirtualMtimeRepo(db, string(folder))
+	var mtimeRepo *VirtualMtimeRepo
+	//mtimeRepo := NewVirtualMtimeRepo(db, string(folder))
 
 	return ldbGenericReplace(db, folder, device, fs, func(db dbReader, batch dbWriter, folder, device, name []byte, dbi iterator.Iterator) int64 {
 		var tf FileInfoTruncated
