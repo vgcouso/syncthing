@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/boltdb/bolt"
 	"github.com/calmh/logger"
 	"github.com/juju/ratelimit"
 	"github.com/syncthing/protocol"
@@ -568,10 +569,8 @@ func syncthingMain() {
 	}
 
 	dbFile := locations[locDatabase]
-	ldb, err := leveldb.OpenFile(dbFile, dbOpts())
-	if err != nil && errors.IsCorrupted(err) {
-		ldb, err = leveldb.RecoverFile(dbFile, dbOpts())
-	}
+	ldb, err := bolt.Open(dbFile, 0644, &bolt.Options{Timeout: time.Second})
+	ldb.NoSync = true
 	if err != nil {
 		l.Fatalln("Cannot open database:", err, "- Is another copy of Syncthing already running?")
 	}

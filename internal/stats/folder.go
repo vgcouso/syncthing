@@ -9,8 +9,8 @@ package stats
 import (
 	"time"
 
+	"github.com/boltdb/bolt"
 	"github.com/syncthing/syncthing/internal/db"
-	"github.com/syndtr/goleveldb/leveldb"
 )
 
 type FolderStatistics struct {
@@ -27,7 +27,7 @@ type LastFile struct {
 	Filename string    `json:"filename"`
 }
 
-func NewFolderStatisticsReference(ldb *leveldb.DB, folder string) *FolderStatisticsReference {
+func NewFolderStatisticsReference(ldb *bolt.DB, folder string) *FolderStatisticsReference {
 	prefix := string(db.KeyTypeFolderStatistic) + folder
 	return &FolderStatisticsReference{
 		ns:     db.NewNamespacedKV(ldb, prefix),

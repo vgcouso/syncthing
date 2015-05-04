@@ -7,18 +7,23 @@
 package db
 
 import (
+	"fmt"
+	"os"
 	"testing"
 	"time"
 
-	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/syndtr/goleveldb/leveldb/storage"
+	"github.com/boltdb/bolt"
 )
 
 func TestVirtualMtimeRepo(t *testing.T) {
-	ldb, err := leveldb.Open(storage.NewMemStorage(), nil)
+	ldb, err := bolt.Open(fmt.Sprintf("testdata/test-%s.db", time.Now().Format(time.RFC3339Nano)), 0644, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer func() {
+		ldb.Close()
+		os.RemoveAll(ldb.Path())
+	}()
 
 	// A few repos so we can ensure they don't pollute each other
 	repo1 := NewVirtualMtimeRepo(ldb, "folder1")
@@ -36,11 +41,11 @@ func TestVirtualMtimeRepo(t *testing.T) {
 	// Files are not present at the start
 
 	if v := repo1.GetMtime(file1, dummyTime); !v.Equal(dummyTime) {
-		t.Errorf("Mtime should be missing (%v) from repo 1 but it's %v", dummyTime, v)
+		t.Fatalf("Mtime should be missing (%v) from repo 1 but it's %v", dummyTime, v)
 	}
 
 	if v := repo2.GetMtime(file1, dummyTime); !v.Equal(dummyTime) {
-		t.Errorf("Mtime should be missing (%v) from repo 2 but it's %v", dummyTime, v)
+		t.Fatalf("Mtime should be missing (%v) from repo 2 but it's %v", dummyTime, v)
 	}
 
 	repo1.UpdateMtime(file1, time1, time2)
@@ -48,17 +53,17 @@ func TestVirtualMtimeRepo(t *testing.T) {
 	// Now it should return time2 only when time1 is passed as the argument
 
 	if v := repo1.GetMtime(file1, time1); !v.Equal(time2) {
-		t.Errorf("Mtime should be %v for disk time %v but we got %v", time2, time1, v)
+		t.Fatalf("Mtime should be %v for disk time %v but we got %v", time2, time1, v)
 	}
 
 	if v := repo1.GetMtime(file1, dummyTime); !v.Equal(dummyTime) {
-		t.Errorf("Mtime should be %v for disk time %v but we got %v", dummyTime, dummyTime, v)
+		t.Fatalf("Mtime should be %v for disk time %v but we got %v", dummyTime, dummyTime, v)
 	}
 
 	// repo2 shouldn't know about this file
 
 	if v := repo2.GetMtime(file1, time1); !v.Equal(time1) {
-		t.Errorf("Mtime should be %v for disk time %v in repo 2 but we got %v", time1, time1, v)
+		t.Fatalf("Mtime should be %v for disk time %v in repo 2 but we got %v", time1, time1, v)
 	}
 
 	repo1.DeleteMtime(file1)
@@ -66,7 +71,7 @@ func TestVirtualMtimeRepo(t *testing.T) {
 	// Now it should be gone
 
 	if v := repo1.GetMtime(file1, time1); !v.Equal(time1) {
-		t.Errorf("Mtime should be %v for disk time %v but we got %v", time1, time1, v)
+		t.Fatalf("Mtime should be %v for disk time %v but we got %v", time1, time1, v)
 	}
 
 	// Try again but with Drop()
@@ -75,6 +80,6 @@ func TestVirtualMtimeRepo(t *testing.T) {
 	repo1.Drop()
 
 	if v := repo1.GetMtime(file1, time1); !v.Equal(time1) {
-		t.Errorf("Mtime should be %v for disk time %v but we got %v", time1, time1, v)
+		t.Fatalf("Mtime should be %v for disk time %v but we got %v", time1, time1, v)
 	}
 }

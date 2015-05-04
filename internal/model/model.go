@@ -22,6 +22,7 @@ import (
 	stdsync "sync"
 	"time"
 
+	"github.com/boltdb/bolt"
 	"github.com/syncthing/protocol"
 	"github.com/syncthing/syncthing/internal/config"
 	"github.com/syncthing/syncthing/internal/db"
@@ -33,7 +34,6 @@ import (
 	"github.com/syncthing/syncthing/internal/symlinks"
 	"github.com/syncthing/syncthing/internal/sync"
 	"github.com/syncthing/syncthing/internal/versioner"
-	"github.com/syndtr/goleveldb/leveldb"
 )
 
 // How many files to send in each Index/IndexUpdate message.
@@ -59,7 +59,7 @@ type service interface {
 
 type Model struct {
 	cfg             *config.Wrapper
-	db              *leveldb.DB
+	db              *bolt.DB
 	finder          *db.BlockFinder
 	progressEmitter *ProgressEmitter
 	id              protocol.DeviceID
@@ -95,7 +95,7 @@ var (
 // NewModel creates and starts a new model. The model starts in read-only mode,
 // where it sends index information to connected peers and responds to requests
 // for file data without altering the local folder in any way.
-func NewModel(cfg *config.Wrapper, id protocol.DeviceID, deviceName, clientName, clientVersion string, ldb *leveldb.DB) *Model {
+func NewModel(cfg *config.Wrapper, id protocol.DeviceID, deviceName, clientName, clientVersion string, ldb *bolt.DB) *Model {
 	m := &Model{
 		cfg:             cfg,
 		db:              ldb,
