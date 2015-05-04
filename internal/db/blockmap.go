@@ -29,11 +29,11 @@ import (
 var blockFinder *BlockFinder
 
 type BlockMap struct {
-	db     *leveldb.DB
+	db     backend
 	folder string
 }
 
-func NewBlockMap(db *leveldb.DB, folder string) *BlockMap {
+func NewBlockMap(db backend, folder string) *BlockMap {
 	return &BlockMap{
 		db:     db,
 		folder: folder,
