@@ -70,6 +70,7 @@ type rwFolder struct {
 	pullers       int
 	shortID       uint64
 	order         config.PullOrder
+	caseSensitive bool
 
 	stop        chan struct{}
 	queue       *jobQueue
@@ -81,6 +82,17 @@ type rwFolder struct {
 }
 
 func newRWFolder(m *Model, shortID uint64, cfg config.FolderConfiguration) *rwFolder {
+	var caseSensitive bool
+	switch {
+	case cfg.CaseSensitivity == config.SensitivityYes:
+		caseSensitive = true
+	case cfg.CaseSensitivity == config.SensitivityNo:
+		caseSensitive = false
+	default:
+		// In the auto detect case, set to false if we are on windows or
+		// darwin, otherwise true.
+		caseSensitive = !(runtime.GOOS == "windows" || runtime.GOOS == "darwin")
+	}
 	return &rwFolder{
 		stateTracker: stateTracker{
 			folder: cfg.ID,
@@ -99,6 +111,7 @@ func newRWFolder(m *Model, shortID uint64, cfg config.FolderConfiguration) *rwFo
 		pullers:       cfg.Pullers,
 		shortID:       shortID,
 		order:         cfg.Order,
+		caseSensitive: caseSensitive,
 
 		stop:        make(chan struct{}),
 		queue:       newJobQueue(),

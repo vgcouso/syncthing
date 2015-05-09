@@ -83,6 +83,7 @@ type FolderConfiguration struct {
 	Pullers         int                         `xml:"pullers" json:"pullers"` // Defines how many blocks are fetched at the same time, possibly between separate copier routines.
 	Hashers         int                         `xml:"hashers" json:"hashers"` // Less than one sets the value to the number of cores. These are CPU bound due to hashing.
 	Order           PullOrder                   `xml:"order" json:"order"`
+	CaseSensitivity CaseSensitivity             `xml:"caseSensitivity" json:"caseSensitivity"`
 
 	Invalid string `xml:"-" json:"invalid"` // Set at runtime when there is an error, not saved
 
@@ -730,6 +731,45 @@ func (o *PullOrder) UnmarshalText(bs []byte) error {
 		*o = OrderNewestFirst
 	default:
 		*o = OrderRandom
+	}
+	return nil
+}
+
+type CaseSensitivity int
+
+const (
+	SensitivityAuto CaseSensitivity = iota // default is auto detect based on OS type
+	SensitivityYes
+	SensitivityNo
+)
+
+func (s CaseSensitivity) String() string {
+	switch s {
+	case SensitivityAuto:
+		return "auto"
+	case SensitivityYes:
+		return "sensitive"
+	case SensitivityNo:
+		return "insensitive"
+	default:
+		return "unknown"
+	}
+}
+
+func (s CaseSensitivity) MarshalText() ([]byte, error) {
+	return []byte(s.String()), nil
+}
+
+func (s *CaseSensitivity) UnmarshalText(bs []byte) error {
+	switch string(bs) {
+	case "auto":
+		*s = SensitivityAuto
+	case "sensitive":
+		*s = SensitivityYes
+	case "insensitive":
+		*s = SensitivityNo
+	default:
+		*s = SensitivityAuto
 	}
 	return nil
 }
