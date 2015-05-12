@@ -9,6 +9,9 @@ package db_test
 import (
 	"bytes"
 	"fmt"
+	"log"
+	"math/rand"
+	"os"
 	"reflect"
 	"sort"
 	"testing"
@@ -16,6 +19,7 @@ import (
 	"github.com/syncthing/protocol"
 	"github.com/syncthing/syncthing/internal/db"
 	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/syndtr/goleveldb/leveldb/opt"
 	"github.com/syndtr/goleveldb/leveldb/storage"
 )
 
@@ -32,11 +36,20 @@ func genBlocks(n int) []protocol.BlockInfo {
 	b := make([]protocol.BlockInfo, n)
 	for i := range b {
 		h := make([]byte, 32)
-		for j := range h {
-			h[j] = byte(i + j)
+		for i := 0; i < len(h)/4; i += 4 {
+			r := rand.Uint32()
+			h[i*4] = byte(r)
+			h[i*4+1] = byte(r >> 8)
+			h[i*4+2] = byte(r >> 16)
+			h[i*4+3] = byte(r >> 24)
 		}
-		b[i].Size = int32(i)
 		b[i].Hash = h
+
+		if i == n-1 {
+			b[i].Size = 1234
+		} else {
+			b[i].Size = protocol.BlockSize
+		}
 	}
 	return b
 }
@@ -860,4 +873,37 @@ func TestLongPath(t *testing.T) {
 		t.Errorf("Incorrect long filename;\n%q !=\n%q",
 			gf[0].Name, local[0].Name)
 	}
+}
+
+func TestLargeRepo(t *testing.T) {
+	os.RemoveAll("testdata/largerepo.db")
+
+	ldb, err := leveldb.OpenFile("testdata/largerepo.db", &opt.Options{OpenFilesCacheCapacity: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s := db.NewFileSet("test", ldb)
+
+	for i := 0; i < 500; i++ {
+		local := []protocol.FileInfo{{
+			Name:    string(fmt.Sprintf("some dir %d/some other dir %d/some name %d.bin", i, i, i)),
+			Version: protocol.Vector{{ID: myID, Value: 1000}},
+			Blocks:  genBlocks(30000 + 100*i), // from 30000 to 80000 blocks each
+		}}
+		s.Update(protocol.LocalDeviceID, local)
+		log.Println("Added file", i+1)
+	}
+
+	gf := globalList(s)
+	if l := len(gf); l != 500 {
+		t.Fatalf("Incorrect len %d != 1 for global list", l)
+	}
+	gf = haveList(s, protocol.LocalDeviceID)
+	if l := len(gf); l != 500 {
+		t.Fatalf("Incorrect len %d != 1 for have list", l)
+	}
+
+	// Intentionally don't remove the db if the test fails along the way
+	os.RemoveAll("testdata/largerepo.db")
 }
