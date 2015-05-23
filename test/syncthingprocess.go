@@ -203,6 +203,40 @@ func (p *syncthingProcess) post(path string, data io.Reader) (*http.Response, er
 	return resp, nil
 }
 
+func (p *syncthingProcess) peerCompletion() (map[string]int, error) {
+	resp, err := p.get("/rest/debug/peerCompletion")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	comp := map[string]int{}
+	err = json.NewDecoder(resp.Body).Decode(&comp)
+
+	// Remove ourselves from the set. In the remaining map, all peers should
+	// be att 100% if we're in sync.
+	for id := range comp {
+		if id == p.id.String() {
+			delete(comp, id)
+		}
+	}
+
+	return comp, err
+}
+
+func (p *syncthingProcess) allPeersInSync() error {
+	comp, err := p.peerCompletion()
+	if err != nil {
+		return err
+	}
+	for id, val := range comp {
+		if val != 100 {
+			return fmt.Errorf("%.7s at %d%%", id, val)
+		}
+	}
+	return nil
+}
+
 type model struct {
 	GlobalBytes   int
 	GlobalDeleted int
@@ -345,38 +379,6 @@ func (p *syncthingProcess) reset(folder string) error {
 	return nil
 }
 
-func awaitCompletion(folder string, ps ...syncthingProcess) error {
-mainLoop:
-	for {
-		time.Sleep(2500 * time.Millisecond)
-
-		expectedVersion := 0
-		for _, p := range ps {
-			insync, version, err := p.insync(folder)
-
-			if err != nil {
-				if isTimeout(err) {
-					continue mainLoop
-				}
-				return err
-			}
-
-			if !insync {
-				continue mainLoop
-			}
-
-			if expectedVersion == 0 {
-				expectedVersion = version
-			} else if version != expectedVersion {
-				// Version number mismatch between devices, so not in sync.
-				continue mainLoop
-			}
-		}
-
-		return nil
-	}
-}
-
 func waitForScan(p syncthingProcess) {
 	// Wait for one scan to succeed, or up to 20 seconds...
 	for i := 0; i < 20; i++ {
@@ -386,5 +388,41 @@ func waitForScan(p syncthingProcess) {
 			continue
 		}
 		break
+	}
+}
+
+func allDevicesInSync(ps []syncthingProcess) error {
+	return allDevicesInSyncFolder("default", ps)
+}
+
+func allDevicesInSyncFolder(folder string, ps []syncthingProcess) error {
+	expectedDefaultVersion := 0
+	for _, p := range ps {
+		if err := p.allPeersInSync(); err != nil {
+			return fmt.Errorf("%.7s: %v", p.id.String(), err)
+		}
+
+		insync, ver, err := p.insync(folder)
+		if err != nil {
+			return fmt.Errorf("%.7s: %v", p.id.String(), err)
+		}
+		if !insync {
+			return fmt.Errorf("%.7s: not in sync", p.id.String())
+		}
+		if expectedDefaultVersion == 0 {
+			expectedDefaultVersion = ver
+		} else if expectedDefaultVersion != ver {
+			return fmt.Errorf("%.7s: version differs")
+		}
+	}
+
+	return nil
+}
+
+func awaitCompletion(folder string, ps ...syncthingProcess) error {
+	for {
+		if allDevicesInSyncFolder(folder, ps) == nil {
+			return nil
+		}
 	}
 }

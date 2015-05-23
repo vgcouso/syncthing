@@ -77,6 +77,7 @@ type rwFolder struct {
 	scanTimer   *time.Timer
 	pullTimer   *time.Timer
 	delayScan   chan time.Duration
+	scanNow     chan rescanRequest
 	remoteIndex chan struct{} // An index update was received, we should re-evaluate needs
 }
 
@@ -105,6 +106,7 @@ func newRWFolder(m *Model, shortID uint64, cfg config.FolderConfiguration) *rwFo
 		pullTimer:   time.NewTimer(shortPullIntv),
 		scanTimer:   time.NewTimer(time.Millisecond), // The first scan should be done immediately.
 		delayScan:   make(chan time.Duration),
+		scanNow:     make(chan rescanRequest),
 		remoteIndex: make(chan struct{}, 1), // This needs to be 1-buffered so that we queue a notification if we're busy doing a pull when it comes.
 	}
 }
@@ -258,7 +260,7 @@ func (p *rwFolder) Serve() {
 				l.Debugln(p, "rescan")
 			}
 
-			if err := p.model.ScanFolder(p.folder); err != nil {
+			if err := p.model.internalScanFolderSubs(p.folder, nil); err != nil {
 				// Potentially sets the error twice, once in the scanner just
 				// by doing a check, and once here, if the error returned is
 				// the same one as returned by CheckFolderHealth, though
@@ -275,6 +277,29 @@ func (p *rwFolder) Serve() {
 				l.Infoln("Completed initial scan (rw) of folder", p.folder)
 				initialScanCompleted = true
 			}
+
+		case req := <-p.scanNow:
+			if err := p.model.CheckFolderHealth(p.folder); err != nil {
+				l.Infoln("Skipping folder", p.folder, "scan due to folder error:", err)
+				req.err <- err
+				continue
+			}
+
+			if debug {
+				l.Debugln(p, "forced rescan")
+			}
+
+			if err := p.model.internalScanFolderSubs(p.folder, req.subs); err != nil {
+				// Potentially sets the error twice, once in the scanner just
+				// by doing a check, and once here, if the error returned is
+				// the same one as returned by CheckFolderHealth, though
+				// duplicate set is handled by setError.
+				p.setError(err)
+				req.err <- err
+				continue
+			}
+
+			req.err <- nil
 
 		case next := <-p.delayScan:
 			p.scanTimer.Reset(next)
@@ -295,6 +320,15 @@ func (p *rwFolder) IndexUpdated() {
 		// queued to ensure we recheck after the pull, but beyond that we must
 		// make sure to not block index receiving.
 	}
+}
+
+func (p *rwFolder) Scan(subs []string) error {
+	req := rescanRequest{
+		subs: subs,
+		err:  make(chan error),
+	}
+	p.scanNow <- req
+	return <-req.err
 }
 
 func (p *rwFolder) String() string {
