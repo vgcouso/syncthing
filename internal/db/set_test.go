@@ -521,6 +521,39 @@ func Benchmark10kUpdateSme(b *testing.B) {
 	}
 }
 
+func Benchmark10kUpdateChgOne(b *testing.B) {
+	var remote []protocol.FileInfo
+	for i := 0; i < 10000; i++ {
+		remote = append(remote, protocol.FileInfo{Name: fmt.Sprintf("file%d", i), Version: protocol.Vector{{ID: myID, Value: 1000}}})
+	}
+
+	ldb, err := bolt.Open(fmt.Sprintf("testdata/test-%s.db", time.Now().Format(time.RFC3339Nano)), 0644, nil)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer func() {
+		ldb.Close()
+		os.RemoveAll(ldb.Path())
+	}()
+
+	m := db.NewFileSet("test", ldb)
+	m.Replace(remoteDevice0, remote)
+
+	var local []protocol.FileInfo
+	for i := 0; i < 10000; i++ {
+		local = append(local, protocol.FileInfo{Name: fmt.Sprintf("file%d", i), Version: protocol.Vector{{ID: myID, Value: 1000}}})
+	}
+
+	m.ReplaceWithDelete(protocol.LocalDeviceID, local, myID)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		idx := i % 10000
+		local[idx].Version = local[idx].Version.Update(myID)
+		m.Update(protocol.LocalDeviceID, local[idx:idx+1])
+	}
+}
+
 func Benchmark10kNeed2k(b *testing.B) {
 	var remote []protocol.FileInfo
 	for i := 0; i < 10000; i++ {
