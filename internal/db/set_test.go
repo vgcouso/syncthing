@@ -9,9 +9,11 @@ package db_test
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"reflect"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/syncthing/protocol"
 	"github.com/syncthing/syncthing/internal/db"
@@ -446,10 +448,12 @@ func TestLocalDeleted(t *testing.T) {
 }
 
 func Benchmark10kReplace(b *testing.B) {
-	ldb, err := leveldb.Open(storage.NewMemStorage(), nil)
+	name := fmt.Sprintf("testdata/test-%s.db", time.Now().Format(time.RFC3339Nano))
+	ldb, err := leveldb.OpenFile(name, nil)
 	if err != nil {
 		b.Fatal(err)
 	}
+	defer os.RemoveAll(name)
 
 	var local []protocol.FileInfo
 	for i := 0; i < 10000; i++ {
@@ -469,10 +473,12 @@ func Benchmark10kUpdateChg(b *testing.B) {
 		remote = append(remote, protocol.FileInfo{Name: fmt.Sprintf("file%d", i), Version: protocol.Vector{{ID: myID, Value: 1000}}})
 	}
 
-	ldb, err := leveldb.Open(storage.NewMemStorage(), nil)
+	name := fmt.Sprintf("testdata/test-%s.db", time.Now().Format(time.RFC3339Nano))
+	ldb, err := leveldb.OpenFile(name, nil)
 	if err != nil {
 		b.Fatal(err)
 	}
+	defer os.RemoveAll(name)
 
 	m := db.NewFileSet("test", ldb)
 	m.Replace(remoteDevice0, remote)
@@ -501,10 +507,13 @@ func Benchmark10kUpdateSme(b *testing.B) {
 		remote = append(remote, protocol.FileInfo{Name: fmt.Sprintf("file%d", i), Version: protocol.Vector{{ID: myID, Value: 1000}}})
 	}
 
-	ldb, err := leveldb.Open(storage.NewMemStorage(), nil)
+	name := fmt.Sprintf("testdata/test-%s.db", time.Now().Format(time.RFC3339Nano))
+	ldb, err := leveldb.OpenFile(name, nil)
 	if err != nil {
 		b.Fatal(err)
 	}
+	defer os.RemoveAll(name)
+
 	m := db.NewFileSet("test", ldb)
 	m.Replace(remoteDevice0, remote)
 
@@ -527,10 +536,13 @@ func Benchmark10kUpdateChgOne(b *testing.B) {
 		remote = append(remote, protocol.FileInfo{Name: fmt.Sprintf("file%d", i), Version: protocol.Vector{{ID: myID, Value: 1000}}})
 	}
 
-	ldb, err := leveldb.Open(storage.NewMemStorage(), nil)
+	name := fmt.Sprintf("testdata/test-%s.db", time.Now().Format(time.RFC3339Nano))
+	ldb, err := leveldb.OpenFile(name, nil)
 	if err != nil {
 		b.Fatal(err)
 	}
+	defer os.RemoveAll(name)
+
 	m := db.NewFileSet("test", ldb)
 	m.Replace(remoteDevice0, remote)
 
@@ -555,10 +567,12 @@ func Benchmark10kNeed2k(b *testing.B) {
 		remote = append(remote, protocol.FileInfo{Name: fmt.Sprintf("file%d", i), Version: protocol.Vector{{ID: myID, Value: 1000}}})
 	}
 
-	ldb, err := leveldb.Open(storage.NewMemStorage(), nil)
+	name := fmt.Sprintf("testdata/test-%s.db", time.Now().Format(time.RFC3339Nano))
+	ldb, err := leveldb.OpenFile(name, nil)
 	if err != nil {
 		b.Fatal(err)
 	}
+	defer os.RemoveAll(name)
 
 	m := db.NewFileSet("test", ldb)
 	m.Replace(remoteDevice0, remote)
@@ -588,10 +602,12 @@ func Benchmark10kHaveFullList(b *testing.B) {
 		remote = append(remote, protocol.FileInfo{Name: fmt.Sprintf("file%d", i), Version: protocol.Vector{{ID: myID, Value: 1000}}})
 	}
 
-	ldb, err := leveldb.Open(storage.NewMemStorage(), nil)
+	name := fmt.Sprintf("testdata/test-%s.db", time.Now().Format(time.RFC3339Nano))
+	ldb, err := leveldb.OpenFile(name, nil)
 	if err != nil {
 		b.Fatal(err)
 	}
+	defer os.RemoveAll(name)
 
 	m := db.NewFileSet("test", ldb)
 	m.Replace(remoteDevice0, remote)
@@ -621,10 +637,12 @@ func Benchmark10kGlobal(b *testing.B) {
 		remote = append(remote, protocol.FileInfo{Name: fmt.Sprintf("file%d", i), Version: protocol.Vector{{ID: myID, Value: 1000}}})
 	}
 
-	ldb, err := leveldb.Open(storage.NewMemStorage(), nil)
+	name := fmt.Sprintf("testdata/test-%s.db", time.Now().Format(time.RFC3339Nano))
+	ldb, err := leveldb.OpenFile(name, nil)
 	if err != nil {
 		b.Fatal(err)
 	}
+	defer os.RemoveAll(name)
 
 	m := db.NewFileSet("test", ldb)
 	m.Replace(remoteDevice0, remote)
