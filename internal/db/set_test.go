@@ -527,15 +527,10 @@ func Benchmark10kUpdateChgOne(b *testing.B) {
 		remote = append(remote, protocol.FileInfo{Name: fmt.Sprintf("file%d", i), Version: protocol.Vector{{ID: myID, Value: 1000}}})
 	}
 
-	ldb, err := bolt.Open(fmt.Sprintf("testdata/test-%s.db", time.Now().Format(time.RFC3339Nano)), 0644, nil)
+	ldb, err := leveldb.Open(storage.NewMemStorage(), nil)
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer func() {
-		ldb.Close()
-		os.RemoveAll(ldb.Path())
-	}()
-
 	m := db.NewFileSet("test", ldb)
 	m.Replace(remoteDevice0, remote)
 
