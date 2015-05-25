@@ -18,11 +18,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/boltdb/bolt"
 	"github.com/syncthing/protocol"
 	"github.com/syncthing/syncthing/internal/config"
 	"github.com/syncthing/syncthing/internal/db"
-	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/syndtr/goleveldb/leveldb/storage"
 )
 
 var device1, device2 protocol.DeviceID
@@ -88,8 +87,18 @@ func init() {
 	}
 }
 
+func tmpDB() *bolt.DB {
+	db, err := bolt.Open(fmt.Sprintf("testdata/test-%d.db", time.Now().UnixNano()), 0644, nil)
+	if err != nil {
+		panic(err)
+	}
+	db.NoSync = true
+	return db
+}
+
 func TestRequest(t *testing.T) {
-	db, _ := leveldb.Open(storage.NewMemStorage(), nil)
+	db := tmpDB()
+	defer func() { db.Close(); os.RemoveAll(db.Path()) }()
 
 	m := NewModel(defaultConfig, protocol.LocalDeviceID, "device", "syncthing", "dev", db)
 
@@ -185,7 +194,8 @@ func BenchmarkIndex_100(b *testing.B) {
 }
 
 func benchmarkIndex(b *testing.B, nfiles int) {
-	db, _ := leveldb.Open(storage.NewMemStorage(), nil)
+	db := tmpDB()
+	defer func() { db.Close(); os.RemoveAll(db.Path()) }()
 	m := NewModel(defaultConfig, protocol.LocalDeviceID, "device", "syncthing", "dev", db)
 	m.AddFolder(defaultFolderConfig)
 	m.StartFolderRO("default")
@@ -213,7 +223,8 @@ func BenchmarkIndexUpdate_10000_1(b *testing.B) {
 }
 
 func benchmarkIndexUpdate(b *testing.B, nfiles, nufiles int) {
-	db, _ := leveldb.Open(storage.NewMemStorage(), nil)
+	db := tmpDB()
+	defer func() { db.Close(); os.RemoveAll(db.Path()) }()
 	m := NewModel(defaultConfig, protocol.LocalDeviceID, "device", "syncthing", "dev", db)
 	m.AddFolder(defaultFolderConfig)
 	m.StartFolderRO("default")
@@ -274,7 +285,8 @@ func (FakeConnection) Statistics() protocol.Statistics {
 }
 
 func BenchmarkRequest(b *testing.B) {
-	db, _ := leveldb.Open(storage.NewMemStorage(), nil)
+	db := tmpDB()
+	defer func() { db.Close(); os.RemoveAll(db.Path()) }()
 	m := NewModel(defaultConfig, protocol.LocalDeviceID, "device", "syncthing", "dev", db)
 	m.AddFolder(defaultFolderConfig)
 	m.ScanFolder("default")
@@ -324,7 +336,8 @@ func TestDeviceRename(t *testing.T) {
 		},
 	}
 
-	db, _ := leveldb.Open(storage.NewMemStorage(), nil)
+	db := tmpDB()
+	defer func() { db.Close(); os.RemoveAll(db.Path()) }()
 	m := NewModel(config.Wrap("tmpconfig.xml", cfg), protocol.LocalDeviceID, "device", "syncthing", "dev", db)
 	if cfg.Devices[0].Name != "" {
 		t.Errorf("Device already has a name")
@@ -390,7 +403,8 @@ func TestClusterConfig(t *testing.T) {
 		},
 	}
 
-	db, _ := leveldb.Open(storage.NewMemStorage(), nil)
+	db := tmpDB()
+	defer func() { db.Close(); os.RemoveAll(db.Path()) }()
 
 	m := NewModel(config.Wrap("/tmp/test", cfg), protocol.LocalDeviceID, "device", "syncthing", "dev", db)
 	m.AddFolder(cfg.Folders[0])
@@ -461,7 +475,8 @@ func TestIgnores(t *testing.T) {
 	ioutil.WriteFile("testdata/.stfolder", nil, 0644)
 	ioutil.WriteFile("testdata/.stignore", []byte(".*\nquux\n"), 0644)
 
-	db, _ := leveldb.Open(storage.NewMemStorage(), nil)
+	db := tmpDB()
+	defer func() { db.Close(); os.RemoveAll(db.Path()) }()
 	m := NewModel(defaultConfig, protocol.LocalDeviceID, "device", "syncthing", "dev", db)
 	m.AddFolder(defaultFolderConfig)
 	m.StartFolderRO("default")
@@ -535,7 +550,8 @@ func TestIgnores(t *testing.T) {
 }
 
 func TestRefuseUnknownBits(t *testing.T) {
-	db, _ := leveldb.Open(storage.NewMemStorage(), nil)
+	db := tmpDB()
+	defer func() { db.Close(); os.RemoveAll(db.Path()) }()
 	m := NewModel(defaultConfig, protocol.LocalDeviceID, "device", "syncthing", "dev", db)
 	m.AddFolder(defaultFolderConfig)
 
@@ -572,7 +588,8 @@ func TestRefuseUnknownBits(t *testing.T) {
 }
 
 func TestROScanRecovery(t *testing.T) {
-	ldb, _ := leveldb.Open(storage.NewMemStorage(), nil)
+	ldb := tmpDB()
+	defer func() { ldb.Close(); os.RemoveAll(ldb.Path()) }()
 	set := db.NewFileSet("default", ldb)
 	set.Update(protocol.LocalDeviceID, []protocol.FileInfo{
 		{Name: "dummyfile"},
@@ -656,7 +673,8 @@ func TestROScanRecovery(t *testing.T) {
 }
 
 func TestRWScanRecovery(t *testing.T) {
-	ldb, _ := leveldb.Open(storage.NewMemStorage(), nil)
+	ldb := tmpDB()
+	defer func() { ldb.Close(); os.RemoveAll(ldb.Path()) }()
 	set := db.NewFileSet("default", ldb)
 	set.Update(protocol.LocalDeviceID, []protocol.FileInfo{
 		{Name: "dummyfile"},
@@ -740,7 +758,8 @@ func TestRWScanRecovery(t *testing.T) {
 }
 
 func TestGlobalDirectoryTree(t *testing.T) {
-	db, _ := leveldb.Open(storage.NewMemStorage(), nil)
+	db := tmpDB()
+	defer func() { db.Close(); os.RemoveAll(db.Path()) }()
 	m := NewModel(defaultConfig, protocol.LocalDeviceID, "device", "syncthing", "dev", db)
 	m.AddFolder(defaultFolderConfig)
 
@@ -989,7 +1008,8 @@ func TestGlobalDirectoryTree(t *testing.T) {
 }
 
 func TestGlobalDirectorySelfFixing(t *testing.T) {
-	db, _ := leveldb.Open(storage.NewMemStorage(), nil)
+	db := tmpDB()
+	defer func() { db.Close(); os.RemoveAll(db.Path()) }()
 	m := NewModel(defaultConfig, protocol.LocalDeviceID, "device", "syncthing", "dev", db)
 	m.AddFolder(defaultFolderConfig)
 
@@ -1162,7 +1182,8 @@ func BenchmarkTree_100_10(b *testing.B) {
 }
 
 func benchmarkTree(b *testing.B, n1, n2 int) {
-	db, _ := leveldb.Open(storage.NewMemStorage(), nil)
+	db := tmpDB()
+	defer func() { db.Close(); os.RemoveAll(db.Path()) }()
 	m := NewModel(defaultConfig, protocol.LocalDeviceID, "device", "syncthing", "dev", db)
 	m.AddFolder(defaultFolderConfig)
 	m.ScanFolder("default")
