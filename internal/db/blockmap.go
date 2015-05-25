@@ -7,8 +7,7 @@
 package db
 
 import (
-	"encoding/binary"
-
+	"github.com/boltdb/bolt"
 	"github.com/syncthing/protocol"
 	"github.com/syncthing/syncthing/internal/osutil"
 )
@@ -20,63 +19,57 @@ const (
 )
 
 type BlockMap struct {
-	sc  *stringCache
-	idx map[int32][]bmEntry
+	db     *bolt.DB
+	folder []byte
 }
 
-type bmEntry struct {
-	name  int32
-	index int32
-}
-
-func NewBlockMap() *BlockMap {
+func NewBlockMap(db *bolt.DB, folder string) *BlockMap {
+	db.Update(func(tx *bolt.Tx) error {
+		bkt, err := tx.CreateBucketIfNotExists([]byte("blocks"))
+		if err != nil {
+			panic(err)
+		}
+		_, err = bkt.CreateBucketIfNotExists([]byte(folder))
+		if err != nil {
+			panic(err)
+		}
+	})
 	return &BlockMap{
-		sc:  newStringCache(),
-		idx: make(map[int32][]bmEntry),
+		db:     db,
+		folder: []byte(folder),
 	}
-}
-
-func keyOf(hash []byte) int32 {
-	return int32(binary.BigEndian.Uint32(hash) & keyMask)
 }
 
 // Add files to the block map, ignoring any deleted or invalid files.
 func (m *BlockMap) Add(files []protocol.FileInfo) {
-	for _, file := range files {
-		if file.IsDirectory() || file.IsDeleted() || file.IsInvalid() {
-			continue
-		}
-		idx := m.sc.Index(file.Name)
-
-	nextBlock:
-		for i, block := range file.Blocks {
-			key := keyOf(block.Hash)
-			entries := m.idx[key]
-			if entries == nil {
-				// New block, add it
-				m.idx[key] = []bmEntry{{
-					name:  idx,
-					index: int32(i),
-				}}
+	m.db.Update(func(tx *bolt.Tx) error {
+		bkt := tx.Bucket([]byte(blocks)).Bucket(m.folder)
+		for _, file := range files {
+			if file.IsDirectory() || file.IsDeleted() || file.IsInvalid() {
 				continue
 			}
 
-			// Existing block, add to list, if it's not already there.
-			for _, e := range entries {
-				if e.index == int32(i) && e.name == idx {
-					// Block is already in the registry
-					continue nextBlock
+		nextBlock:
+			for i, block := range file.Blocks {
+				key := block.Hash[:3]
+				val := bkt.Get(key)
+
+				var list bmList
+				if val != nil {
+					if err := list.UnmarshalXDR(val); err != nil {
+						panic(err)
+					}
 				}
+
+				list.entries = append(list.entries, bmEntry{
+					name:  file,
+					index: int32(i),
+				})
+
+				bkt.Put(key, list.MustMarshalXDR())
 			}
-
-			entries = append(entries, bmEntry{
-				name:  idx,
-				index: int32(i),
-			})
-
-			m.idx[key] = entries
 		}
-	}
+	})
 }
 
 // Update block map state, removing any deleted or invalid files.
@@ -95,19 +88,20 @@ func (m *BlockMap) Discard(files []protocol.FileInfo) error {
 	for _, file := range files {
 	nextBlock:
 		for i, block := range file.Blocks {
-			key := keyOf(block.Hash)
-			entries := m.idx[key]
-			if entries == nil {
-				continue nextBlock
+			key := block.Hash[:3]
+			val, ok := m.kv.Bytes(key)
+			if !ok {
+				continue
 			}
-			if len(entries) == 1 {
-				m.idx[key] = nil
-				continue nextBlock
+			var list bmList
+			if ok {
+				if err := list.UnmarshalXDR(val); err != nil {
+					panic(err)
+				}
 			}
 
-			idx := m.sc.Index(file.Name)
-			for j, entry := range entries {
-				if entry.index == int32(i) && entry.name == idx {
+			for j, entry := range list.entries {
+				if entry.index == int32(i) && entry.name == idx && entry.folder == fol {
 					entries = append(entries[:j], entries[j+1:]...)
 					m.idx[key] = entries
 					continue nextBlock
