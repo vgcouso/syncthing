@@ -1179,7 +1179,6 @@ func (p *rwFolder) finisherRoutine(in <-chan *sharedPullerState) {
 					"action": "update",
 				})
 			}
-			p.model.receivedFile(p.folder, state.file.Name)
 			if p.progressEmitter != nil {
 				p.progressEmitter.Deregister(state)
 			}
@@ -1225,12 +1224,14 @@ loop:
 
 			if len(batch) == maxBatchSize {
 				p.model.updateLocals(p.folder, batch)
+				p.model.receivedFile(p.folder, batch[len(batch)-1].Name)
 				batch = batch[:0]
 			}
 
 		case <-tick.C:
 			if len(batch) > 0 {
 				p.model.updateLocals(p.folder, batch)
+				p.model.receivedFile(p.folder, batch[len(batch)-1].Name)
 				batch = batch[:0]
 			}
 		}
@@ -1238,6 +1239,7 @@ loop:
 
 	if len(batch) > 0 {
 		p.model.updateLocals(p.folder, batch)
+		p.model.receivedFile(p.folder, batch[len(batch)-1].Name)
 	}
 }
 
