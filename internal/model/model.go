@@ -1678,6 +1678,16 @@ func (m *Model) IterateBlocks(hash []byte, fn func(folder, file string, idx int)
 	return false
 }
 
+func (m *Model) FixBlock(folder, file string, index int, oldHash, newHash []byte) {
+	m.fmut.RLock()
+	fs, ok := m.folderFiles[folder]
+	m.fmut.RUnlock()
+	if !ok {
+		return
+	}
+	fs.FixBlock(file, index, oldHash, newHash)
+}
+
 func (m *Model) String() string {
 	return fmt.Sprintf("model@%p", m)
 }

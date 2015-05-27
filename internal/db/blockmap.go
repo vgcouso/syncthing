@@ -64,7 +64,9 @@ func (m *BlockMap) Add(files []protocol.FileInfo) {
 					index: int32(i),
 				})
 
-				bkt.Put(key, list.MustMarshalXDR())
+				if err := bkt.Put(key, list.MustMarshalXDR()); err != nil {
+					panic(err)
+				}
 			}
 		}
 		return nil
@@ -107,7 +109,9 @@ func (m *BlockMap) Discard(files []protocol.FileInfo) error {
 				for j, entry := range list.entries {
 					if entry.index == int32(i) && entry.name == file.Name {
 						list.entries = append(list.entries[:j], list.entries[j+1:]...)
-						bkt.Put(key, list.MustMarshalXDR())
+						if err := bkt.Put(key, list.MustMarshalXDR()); err != nil {
+							panic(err)
+						}
 						continue nextBlock
 					}
 				}
@@ -162,14 +166,48 @@ func (m *BlockMap) Iterate(hash []byte, iterFn func(file string, index int) bool
 
 // Fix repairs incorrect blockmap entries, removing the old entry and
 // replacing it with a new entry for the given block
-func (m *BlockMap) Fix(folder, file string, index int, oldHash, newHash []byte) {
-	/*buf := make([]byte, 4)
-	binary.BigEndian.PutUint32(buf, uint32(index))
+func (m *BlockMap) Fix(file string, index int, oldHash, newHash []byte) {
+	m.db.Update(func(tx *bolt.Tx) error {
+		bkt := tx.Bucket(blocksBucketID).Bucket(m.folder)
 
-	batch := new(leveldb.Batch)
-	batch.Delete(toBlockKey(oldHash, folder, file))
-	batch.Put(toBlockKey(newHash, folder, file), buf)
-	return f.db.Write(batch, nil)*/
+		key := oldHash[:keyBytes]
+		val := bkt.Get(key)
+		if val != nil {
+			var list bmList
+			if err := list.UnmarshalXDR(val); err != nil {
+				panic(err)
+			}
+
+			for j, entry := range list.entries {
+				if entry.index == int32(index) && entry.name == file {
+					list.entries = append(list.entries[:j], list.entries[j+1:]...)
+					if err := bkt.Put(key, list.MustMarshalXDR()); err != nil {
+						panic(err)
+					}
+					break
+				}
+			}
+		}
+
+		var list bmList
+		key = newHash[:keyBytes]
+		val = bkt.Get(key)
+		if val != nil {
+			if err := list.UnmarshalXDR(val); err != nil {
+				panic(err)
+			}
+		}
+
+		list.entries = append(list.entries, bmEntry{
+			name:  file,
+			index: int32(index),
+		})
+		if err := bkt.Put(key, list.MustMarshalXDR()); err != nil {
+			panic(err)
+		}
+
+		return nil
+	})
 }
 
 /*

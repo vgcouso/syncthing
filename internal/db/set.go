@@ -218,6 +218,10 @@ func (s *FileSet) IterateBlocks(hash []byte, fn func(file string, idx int) bool)
 	return s.blockmap.Iterate(hash, fn)
 }
 
+func (s *FileSet) FixBlock(file string, index int, oldHash, newHash []byte) {
+	s.blockmap.Fix(file, index, oldHash, newHash)
+}
+
 // ListFolders returns the folder IDs seen in the database.
 func ListFolders(db *bolt.DB) []string {
 	bdb := boltDB{db}

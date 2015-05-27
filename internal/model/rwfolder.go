@@ -963,10 +963,7 @@ func (p *rwFolder) copierRoutine(in <-chan copyBlocksState, pullChan chan<- pull
 						if debug {
 							l.Debugf("Finder block mismatch in %s:%s:%d expected %q got %q", folder, file, index, block.Hash, hash)
 						}
-						//err = p.model.finder.Fix(folder, file, index, block.Hash, hash)
-						if err != nil {
-							l.Warnln("finder fix:", err)
-						}
+						p.model.FixBlock(folder, file, index, block.Hash, hash)
 					} else if debug {
 						l.Debugln("Finder failed to verify buffer", err)
 					}

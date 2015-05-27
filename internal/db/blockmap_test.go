@@ -8,10 +8,8 @@ package db
 
 import (
 	"fmt"
-	"log"
 	"math/rand"
 	"os"
-	"runtime"
 	"testing"
 	"time"
 
@@ -63,7 +61,7 @@ func init() {
 }
 
 func tmpDb() *bolt.DB {
-	db, err := bolt.Open(fmt.Sprintf("testdata/test-%s.db", time.Now().Format(time.RFC3339Nano)), 0644, nil)
+	db, err := bolt.Open(fmt.Sprintf("testdata/test-%d.db", time.Now().UnixNano()), 0644, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -131,38 +129,34 @@ func TestBlockMapAddUpdateWipe(t *testing.T) {
 	f3.Flags = 0
 }
 
-/*
-func TestBlockFinderFix(t *testing.T) {
-	db, f := setup()
+func TestBlockFix(t *testing.T) {
+	db := tmpDb()
+	defer func() {
+		db.Close()
+		os.RemoveAll(db.Path())
+	}()
 
-	iterFn := func(folder, file string, index int) bool {
+	iterFn := func(file string, index int) bool {
 		return true
 	}
 
 	m := NewBlockMap(db, "folder1")
-	err := m.Add([]protocol.FileInfo{f1})
-	if err != nil {
-		t.Fatal(err)
-	}
+	m.Add([]protocol.FileInfo{f1})
 
-	if !f.Iterate(f1.Blocks[0].Hash, iterFn) {
+	if !m.Iterate(f1.Blocks[0].Hash, iterFn) {
 		t.Fatal("Block not found")
 	}
 
-	err = f.Fix("folder1", f1.Name, 0, f1.Blocks[0].Hash, f2.Blocks[0].Hash)
-	if err != nil {
-		t.Fatal(err)
-	}
+	m.Fix(f1.Name, 0, f1.Blocks[0].Hash, f2.Blocks[0].Hash)
 
-	if f.Iterate(f1.Blocks[0].Hash, iterFn) {
+	if m.Iterate(f1.Blocks[0].Hash, iterFn) {
 		t.Fatal("Unexpected block")
 	}
 
-	if !f.Iterate(f2.Blocks[0].Hash, iterFn) {
+	if !m.Iterate(f2.Blocks[0].Hash, iterFn) {
 		t.Fatal("Block not found")
 	}
 }
-*/
 
 func BenchmarkBlockMapAdd(b *testing.B) {
 	db := tmpDb()
@@ -186,6 +180,7 @@ func BenchmarkBlockMapAdd(b *testing.B) {
 	b.ReportAllocs()
 }
 
+/*
 func TestBlockMapAdd_12GB(t *testing.T) {
 	testBlockMapAdd(t, 1)
 }
@@ -236,3 +231,4 @@ func testBlockMapAdd(t *testing.T, files int) {
 
 	log.Println("Heap:", ms1.HeapInuse/1024, "KiB, increase:", (ms1.HeapInuse-ms0.HeapInuse)/1024, "KiB")
 }
+*/
