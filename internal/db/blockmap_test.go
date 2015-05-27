@@ -10,9 +10,12 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"os"
 	"runtime"
 	"testing"
+	"time"
 
+	"github.com/boltdb/bolt"
 	"github.com/syncthing/protocol"
 )
 
@@ -59,8 +62,22 @@ func init() {
 	}
 }
 
+func tmpDb() *bolt.DB {
+	db, err := bolt.Open(fmt.Sprintf("testdata/test-%s.db", time.Now().Format(time.RFC3339Nano)), 0644, nil)
+	if err != nil {
+		panic(err)
+	}
+	db.NoSync = true
+	return db
+}
+
 func TestBlockMapAddUpdateWipe(t *testing.T) {
-	m := NewBlockMap()
+	db := tmpDb()
+	defer func() {
+		db.Close()
+		os.RemoveAll(db.Path())
+	}()
+	m := NewBlockMap(db, "foo")
 
 	f3.Flags |= protocol.FlagDirectory
 
@@ -148,7 +165,12 @@ func TestBlockFinderFix(t *testing.T) {
 */
 
 func BenchmarkBlockMapAdd(b *testing.B) {
-	m := NewBlockMap()
+	db := tmpDb()
+	defer func() {
+		db.Close()
+		os.RemoveAll(db.Path())
+	}()
+	m := NewBlockMap(db, "foo")
 
 	f := protocol.FileInfo{
 		Name:   "A moderately long filename such as would be seen when things are a few directories deep or are movie files or something",
@@ -189,7 +211,12 @@ func TestBlockMapAdd_8TB(t *testing.T) {
 }
 
 func testBlockMapAdd(t *testing.T, files int) {
-	m := NewBlockMap()
+	db := tmpDb()
+	defer func() {
+		db.Close()
+		os.RemoveAll(db.Path())
+	}()
+	m := NewBlockMap(db, "foo")
 
 	var ms0, ms1 runtime.MemStats
 	runtime.GC()
@@ -206,8 +233,6 @@ func testBlockMapAdd(t *testing.T, files int) {
 
 	runtime.GC()
 	runtime.ReadMemStats(&ms1)
-	max, avg, fill := m.Stats()
 
 	log.Println("Heap:", ms1.HeapInuse/1024, "KiB, increase:", (ms1.HeapInuse-ms0.HeapInuse)/1024, "KiB")
-	log.Println("Max len:", max, "Avg len:", avg, "Fill factor:", fill)
 }

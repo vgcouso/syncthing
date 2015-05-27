@@ -214,6 +214,10 @@ func (s *FileSet) LocalVersion(device protocol.DeviceID) int64 {
 	return s.localVersion[device]
 }
 
+func (s *FileSet) IterateBlocks(hash []byte, fn func(file string, idx int) bool) bool {
+	return s.blockmap.Iterate(hash, fn)
+}
+
 // ListFolders returns the folder IDs seen in the database.
 func ListFolders(db *bolt.DB) []string {
 	bdb := boltDB{db}

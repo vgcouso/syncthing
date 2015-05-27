@@ -12,20 +12,18 @@ import (
 	"github.com/syncthing/syncthing/internal/osutil"
 )
 
-const (
-	keyBits = 24
-	keyMask = 1<<keyBits - 1
-	idxSize = 1 << keyBits
-)
-
 type BlockMap struct {
 	db     *bolt.DB
 	folder []byte
 }
 
+var blocksBucketID = []byte("blocks")
+
+const keyBytes = 3
+
 func NewBlockMap(db *bolt.DB, folder string) *BlockMap {
 	db.Update(func(tx *bolt.Tx) error {
-		bkt, err := tx.CreateBucketIfNotExists([]byte("blocks"))
+		bkt, err := tx.CreateBucketIfNotExists(blocksBucketID)
 		if err != nil {
 			panic(err)
 		}
@@ -33,6 +31,7 @@ func NewBlockMap(db *bolt.DB, folder string) *BlockMap {
 		if err != nil {
 			panic(err)
 		}
+		return nil
 	})
 	return &BlockMap{
 		db:     db,
@@ -43,15 +42,14 @@ func NewBlockMap(db *bolt.DB, folder string) *BlockMap {
 // Add files to the block map, ignoring any deleted or invalid files.
 func (m *BlockMap) Add(files []protocol.FileInfo) {
 	m.db.Update(func(tx *bolt.Tx) error {
-		bkt := tx.Bucket([]byte(blocks)).Bucket(m.folder)
+		bkt := tx.Bucket(blocksBucketID).Bucket(m.folder)
 		for _, file := range files {
 			if file.IsDirectory() || file.IsDeleted() || file.IsInvalid() {
 				continue
 			}
 
-		nextBlock:
 			for i, block := range file.Blocks {
-				key := block.Hash[:3]
+				key := block.Hash[:keyBytes]
 				val := bkt.Get(key)
 
 				var list bmList
@@ -62,59 +60,76 @@ func (m *BlockMap) Add(files []protocol.FileInfo) {
 				}
 
 				list.entries = append(list.entries, bmEntry{
-					name:  file,
+					name:  file.Name,
 					index: int32(i),
 				})
 
 				bkt.Put(key, list.MustMarshalXDR())
 			}
 		}
+		return nil
 	})
 }
 
 // Update block map state, removing any deleted or invalid files.
 func (m *BlockMap) Update(files []protocol.FileInfo) {
-	for i, file := range files {
+	adds := make([]protocol.FileInfo, 0, len(files)/2)
+	discards := make([]protocol.FileInfo, 0, len(files)/2)
+	for _, file := range files {
 		if file.IsDeleted() || file.IsInvalid() {
-			m.Discard(files[i : i+1])
+			discards = append(discards, file)
 		} else {
-			m.Add(files[i : i+1])
+			adds = append(adds, file)
 		}
 	}
+	m.Discard(discards)
+	m.Add(adds)
 }
 
 // Discard block map state, removing the given files
 func (m *BlockMap) Discard(files []protocol.FileInfo) error {
-	for _, file := range files {
-	nextBlock:
-		for i, block := range file.Blocks {
-			key := block.Hash[:3]
-			val, ok := m.kv.Bytes(key)
-			if !ok {
-				continue
-			}
-			var list bmList
-			if ok {
+	m.db.Update(func(tx *bolt.Tx) error {
+		bkt := tx.Bucket(blocksBucketID).Bucket(m.folder)
+		for _, file := range files {
+		nextBlock:
+			for i, block := range file.Blocks {
+				key := block.Hash[:keyBytes]
+				val := bkt.Get(key)
+				if val == nil {
+					continue
+				}
+
+				var list bmList
 				if err := list.UnmarshalXDR(val); err != nil {
 					panic(err)
 				}
-			}
 
-			for j, entry := range list.entries {
-				if entry.index == int32(i) && entry.name == idx && entry.folder == fol {
-					entries = append(entries[:j], entries[j+1:]...)
-					m.idx[key] = entries
-					continue nextBlock
+				for j, entry := range list.entries {
+					if entry.index == int32(i) && entry.name == file.Name {
+						list.entries = append(list.entries[:j], list.entries[j+1:]...)
+						bkt.Put(key, list.MustMarshalXDR())
+						continue nextBlock
+					}
 				}
 			}
 		}
-	}
+		return nil
+	})
 	return nil
 }
 
 // Drop block map, removing all entries related to this block map from the db.
 func (m *BlockMap) Drop() error {
-	m.idx = make(map[int32][]bmEntry)
+	m.db.Update(func(tx *bolt.Tx) error {
+		bkt := tx.Bucket(blocksBucketID)
+		if err := bkt.DeleteBucket(m.folder); err != nil {
+			panic(err)
+		}
+		if _, err := bkt.CreateBucketIfNotExists(m.folder); err != nil {
+			panic(err)
+		}
+		return nil
+	})
 	return nil
 }
 
@@ -124,13 +139,24 @@ func (m *BlockMap) Drop() error {
 // reason. The iterator finally returns the result, whether or not a
 // satisfying block was eventually found.
 func (m *BlockMap) Iterate(hash []byte, iterFn func(file string, index int) bool) bool {
-	key := keyOf(hash)
-	entries := m.idx[key]
-	for _, entry := range entries {
-		if iterFn(osutil.NativeFilename(m.sc.Lookup(entry.name)), int(entry.index)) {
-			return true
+	key := hash[:keyBytes]
+	var val []byte
+	m.db.View(func(tx *bolt.Tx) error {
+		val = tx.Bucket(blocksBucketID).Bucket(m.folder).Get(key)
+		return nil
+	})
+	if val != nil {
+		var list bmList
+		if err := list.UnmarshalXDR(val); err != nil {
+			panic(err)
+		}
+		for _, entry := range list.entries {
+			if iterFn(osutil.NativeFilename(entry.name), int(entry.index)) {
+				return true
+			}
 		}
 	}
+
 	return false
 }
 
@@ -146,6 +172,7 @@ func (m *BlockMap) Fix(folder, file string, index int, oldHash, newHash []byte) 
 	return f.db.Write(batch, nil)*/
 }
 
+/*
 func (m *BlockMap) Stats() (maxLen int, avgLen, fill float64) {
 	max := 0
 	tot := 0
@@ -161,3 +188,4 @@ func (m *BlockMap) Stats() (maxLen int, avgLen, fill float64) {
 	}
 	return max, float64(tot) / float64(cnt), float64(cnt) / idxSize
 }
+*/
