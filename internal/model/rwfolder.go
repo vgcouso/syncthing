@@ -931,16 +931,21 @@ func (p *rwFolder) copierRoutine(in <-chan copyBlocksState, pullChan chan<- pull
 	buf := make([]byte, protocol.BlockSize)
 
 	for state := range in {
-		if p.progressEmitter != nil {
-			p.progressEmitter.Register(state.sharedPullerState)
-		}
-
 		dstFd, err := state.tempFile()
 		if err != nil {
-			// Nothing more to do for this failed file (the error was logged
-			// when it happened)
-			out <- state.sharedPullerState
+			// Nothing more to do for this failed file, since we couldn't create a temporary for it.
+			events.Default.Log(events.ItemFinished, map[string]interface{}{
+				"folder": p.folder,
+				"item":   state.file.Name,
+				"error":  err,
+				"type":   "file",
+				"action": "update",
+			})
 			continue
+		}
+
+		if p.progressEmitter != nil {
+			p.progressEmitter.Register(state.sharedPullerState)
 		}
 
 		folderRoots := make(map[string]string)
