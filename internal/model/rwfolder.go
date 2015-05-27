@@ -539,7 +539,7 @@ func (p *rwFolder) handleDir(file protocol.FileInfo) {
 		events.Default.Log(events.ItemFinished, map[string]interface{}{
 			"folder": p.folder,
 			"item":   file.Name,
-			"error":  err,
+			"error":  events.Error(err),
 			"type":   "dir",
 			"action": "update",
 		})
@@ -621,7 +621,7 @@ func (p *rwFolder) deleteDir(file protocol.FileInfo) {
 		events.Default.Log(events.ItemFinished, map[string]interface{}{
 			"folder": p.folder,
 			"item":   file.Name,
-			"error":  err,
+			"error":  events.Error(err),
 			"type":   "dir",
 			"action": "delete",
 		})
@@ -667,7 +667,7 @@ func (p *rwFolder) deleteFile(file protocol.FileInfo) {
 		events.Default.Log(events.ItemFinished, map[string]interface{}{
 			"folder": p.folder,
 			"item":   file.Name,
-			"error":  err,
+			"error":  events.Error(err),
 			"type":   "file",
 			"action": "delete",
 		})
@@ -722,14 +722,14 @@ func (p *rwFolder) renameFile(source, target protocol.FileInfo) {
 		events.Default.Log(events.ItemFinished, map[string]interface{}{
 			"folder": p.folder,
 			"item":   source.Name,
-			"error":  err,
+			"error":  events.Error(err),
 			"type":   "file",
 			"action": "delete",
 		})
 		events.Default.Log(events.ItemFinished, map[string]interface{}{
 			"folder": p.folder,
 			"item":   target.Name,
-			"error":  err,
+			"error":  events.Error(err),
 			"type":   "file",
 			"action": "update",
 		})
@@ -778,6 +778,40 @@ func (p *rwFolder) renameFile(source, target protocol.FileInfo) {
 	}
 }
 
+// This is the flow of data and events here, I think...
+//
+// +-----------------------+
+// |                       | - - - - > ItemStarted
+// |      handleFile       | - - - - > ItemFinished (on shortcuts)
+// |                       |
+// +-----------------------+
+//             |
+//             | copyChan (copyBlocksState; unless shortcut taken)
+//             |
+//             |    +-----------------------+
+//             |    | +-----------------------+
+//             +--->| |                       |
+//                  | |     copierRoutine     | - - - - > ItemFinished (on temp file error)
+//                  +-|                       |
+//                    +-----------------------+
+//                                |
+//                                | pullChan (sharedPullerState)
+//                                |
+//                                |   +-----------------------+
+//                                |   | +-----------------------+
+//                                +-->| |                       |
+//                                    | |     pullerRoutine     |
+//                                    +-|                       |
+//                                      +-----------------------+
+//                                                  |
+//                                                  | finisherChan (sharedPullerState)
+//                                                  |
+//                                                  |   +-----------------------+
+//                                                  |   |                       |
+//                                                  +-->|    finisherRoutine    | - - - - > ItemFinished
+//                                                      |                       |
+//                                                      +-----------------------+
+
 // handleFile queues the copies and pulls as necessary for a single new or
 // changed file.
 func (p *rwFolder) handleFile(file protocol.FileInfo, copyChan chan<- copyBlocksState, finisherChan chan<- *sharedPullerState) {
@@ -807,7 +841,7 @@ func (p *rwFolder) handleFile(file protocol.FileInfo, copyChan chan<- copyBlocks
 		events.Default.Log(events.ItemFinished, map[string]interface{}{
 			"folder": p.folder,
 			"item":   file.Name,
-			"error":  err,
+			"error":  events.Error(err),
 			"type":   "file",
 			"action": "update",
 		})
@@ -937,7 +971,7 @@ func (p *rwFolder) copierRoutine(in <-chan copyBlocksState, pullChan chan<- pull
 			events.Default.Log(events.ItemFinished, map[string]interface{}{
 				"folder": p.folder,
 				"item":   state.file.Name,
-				"error":  err,
+				"error":  events.Error(err),
 				"type":   "file",
 				"action": "update",
 			})
@@ -1081,7 +1115,7 @@ func (p *rwFolder) performFinish(state *sharedPullerState) {
 		events.Default.Log(events.ItemFinished, map[string]interface{}{
 			"folder": p.folder,
 			"item":   state.file.Name,
-			"error":  err,
+			"error":  events.Error(err),
 			"type":   "file",
 			"action": "update",
 		})
@@ -1182,7 +1216,7 @@ func (p *rwFolder) finisherRoutine(in <-chan *sharedPullerState) {
 				events.Default.Log(events.ItemFinished, map[string]interface{}{
 					"folder": p.folder,
 					"item":   state.file.Name,
-					"error":  state.failed(),
+					"error":  events.Error(state.failed()),
 					"type":   "file",
 					"action": "update",
 				})
